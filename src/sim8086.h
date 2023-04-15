@@ -40,8 +40,30 @@ enum Opcode {
     OPCODE_SUB_REGISTER_OR_MEMORY = 0b001010,
     OPCODE_SUB_IMMEDIATE_FROM_ACCUMULATOR = 0b0010110,
     
-    OPCODE_CMP_REGISTER_OR_MEMORY = 0b1111111,
+    OPCODE_CMP_REGISTER_OR_MEMORY = 0b001110,
     OPCODE_CMP_IMMEDIATE_WITH_ACCUMULATOR = 0b0011110,
+    
+    // Conditional jumps
+    OPCODE_JE     = 0b01110100,
+    OPCODE_JL     = 0b01111100,
+    OPCODE_JLE    = 0b01111110,
+    OPCODE_JB     = 0b01110010,
+    OPCODE_JBE    = 0b01110110,
+    OPCODE_JP     = 0b01111010,
+    OPCODE_JO     = 0b01110000,
+    OPCODE_JS     = 0b01111000,
+    OPCODE_JNE    = 0b01110101,
+    OPCODE_JNL    = 0b01111101,
+    OPCODE_JNLE   = 0b01111111,
+    OPCODE_JNB    = 0b01110011,
+    OPCODE_JNBE   = 0b01110111,
+    OPCODE_JNP    = 0b01111011,
+    OPCODE_JNO    = 0b01110001,
+    OPCODE_JNS    = 0b01111001,
+    OPCODE_LOOP   = 0b11100010,
+    OPCODE_LOOPZ  = 0b11100001,
+    OPCODE_LOOPNZ = 0b11100000,
+    OPCODE_JCXZ   = 0b11100011,
 };
 
 enum Mod {
@@ -58,6 +80,7 @@ enum OperationType {
     Op_add,
     Op_sub,
     Op_cmp,
+    Op_jmp,
 };
 
 enum Flags {
@@ -69,6 +92,7 @@ enum Flags {
 
 struct Instruction {
     OperationType operation_type;
+    u8 binary;
     u8 d;
     u8 s;
     u8 w;
@@ -101,7 +125,7 @@ char *register_table[16] = {
     "di", // 1111
 };
 
-OperationType operation_types[8] = {
+OperationType arithmetic_operations[8] = {
     Op_add,  // 000
     Op_none, // 001
     Op_none, // 010

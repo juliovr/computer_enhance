@@ -113,6 +113,38 @@ void print_instruction(Instruction instruction, FileContent *file_content)
         case Op_add: { printf("add "); } break;
         case Op_sub: { printf("sub "); } break;
         case Op_cmp: { printf("cmp "); } break;
+        case Op_jmp: {
+            switch (instruction.binary)
+            {
+                case OPCODE_JE:     { printf("je"); } break;
+                case OPCODE_JL:     { printf("jl"); } break;
+                case OPCODE_JLE:    { printf("jle"); } break;
+                case OPCODE_JB:     { printf("jb"); } break;
+                case OPCODE_JBE:    { printf("jbe"); } break;
+                case OPCODE_JP:     { printf("jp"); } break;
+                case OPCODE_JO:     { printf("jo"); } break;
+                case OPCODE_JS:     { printf("js"); } break;
+                case OPCODE_JNE:    { printf("jne"); } break;
+                case OPCODE_JNL:    { printf("jnl"); } break;
+                case OPCODE_JNLE:   { printf("jnle"); } break;
+                case OPCODE_JNB:    { printf("jnb"); } break;
+                case OPCODE_JNBE:   { printf("jnbe"); } break;
+                case OPCODE_JNP:    { printf("jnp"); } break;
+                case OPCODE_JNO:    { printf("jno"); } break;
+                case OPCODE_JNS:    { printf("jns"); } break;
+                case OPCODE_LOOP:   { printf("loop"); } break;
+                case OPCODE_LOOPZ:  { printf("loopz"); } break;
+                case OPCODE_LOOPNZ: { printf("loopnz"); } break;
+                case OPCODE_JCXZ:   { printf("jcxz"); } break;
+            }
+        } break;
+    }
+    
+    if (instruction.operation_type == Op_jmp) {
+        // TODO: based on the increment place a label in the assembly and use that name here (it does not work with the number directly).
+        s8 increment = get_next_byte(file_content);
+        printf(" %d", increment);
+        return;
     }
     
     if (instruction.flags & PRINT_WORD_BYTE_TEXT) {
@@ -159,6 +191,9 @@ void decode_asm_8086(FileContent *file_content)
     while (file_content->size_remaining)
     {
         u8 first_byte = get_next_byte(file_content);
+        
+        Instruction instruction = {};
+        instruction.binary = first_byte;
         
         if (((first_byte >> 2) & 0b111111) == OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER)
         {
@@ -277,12 +312,11 @@ void decode_asm_8086(FileContent *file_content)
         {
             u8 second_byte = get_next_byte(file_content);
             
-            Instruction instruction = {};
             instruction.s = (first_byte >> 1) & 1;
             instruction.w = first_byte & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
-            instruction.operation_type = operation_types[(second_byte >> 3) & 0b111];
+            instruction.operation_type = arithmetic_operations[(second_byte >> 3) & 0b111];
             instruction.flags = PRINT_WORD_BYTE_TEXT | PRINT_DISPLACEMENT;
             
             print_instruction(instruction, file_content);
@@ -293,13 +327,12 @@ void decode_asm_8086(FileContent *file_content)
         {
             u8 second_byte = get_next_byte(file_content);
             
-            Instruction instruction = {};
             instruction.d = (first_byte >> 1) & 1;
             instruction.w = first_byte & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.reg = (second_byte >> 3) & 0b111;
             instruction.rm = second_byte & 0b111;
-            instruction.operation_type = operation_types[(first_byte >> 3) & 0b111];
+            instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
             instruction.flags = REG_SOURCE_DEST | PRINT_DISPLACEMENT;
             
             print_instruction(instruction, file_content);
@@ -308,11 +341,35 @@ void decode_asm_8086(FileContent *file_content)
                  (((first_byte >> 1) & 0b1111111) == OPCODE_SUB_IMMEDIATE_FROM_ACCUMULATOR) ||
                  (((first_byte >> 1) & 0b1111111) == OPCODE_CMP_IMMEDIATE_WITH_ACCUMULATOR))
         {
-            Instruction instruction = {};
             instruction.w = first_byte & 1;
             instruction.reg = 0b000; // ax || al register
-            instruction.operation_type = operation_types[(first_byte >> 3) & 0b111];
+            instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
             instruction.flags = ACCUMULATOR;
+            
+            print_instruction(instruction, file_content);
+        }
+        else if ((first_byte == OPCODE_JE) ||
+                 (first_byte == OPCODE_JL) ||
+                 (first_byte == OPCODE_JLE) ||
+                 (first_byte == OPCODE_JB) ||
+                 (first_byte == OPCODE_JBE) ||
+                 (first_byte == OPCODE_JP) ||
+                 (first_byte == OPCODE_JO) ||
+                 (first_byte == OPCODE_JS) ||
+                 (first_byte == OPCODE_JNE) ||
+                 (first_byte == OPCODE_JNL) ||
+                 (first_byte == OPCODE_JNLE) ||
+                 (first_byte == OPCODE_JNB) ||
+                 (first_byte == OPCODE_JNBE) ||
+                 (first_byte == OPCODE_JNP) ||
+                 (first_byte == OPCODE_JNO) ||
+                 (first_byte == OPCODE_JNS) ||
+                 (first_byte == OPCODE_LOOP) ||
+                 (first_byte == OPCODE_LOOPZ) ||
+                 (first_byte == OPCODE_LOOPNZ) ||
+                 (first_byte == OPCODE_JCXZ))
+        {
+            instruction.operation_type = Op_jmp;
             
             print_instruction(instruction, file_content);
         }
