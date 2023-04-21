@@ -165,17 +165,25 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
         }
     }
     
-    if (instruction.flags & ACCUMULATOR) {
+    if (instruction.flags & IMMEDIATE_ACCUMULATOR) {
         printf("%s", reg_register_name);
     }
     
-    if (instruction.flags & PRINT_DISPLACEMENT) {
+    if (instruction.flags & DISPLACEMENT) {
         print_memory_address_and_displacement(instruction.w, instruction.rm, instruction.mod, file_content);
     }
     
     if (instruction.flags & IMMEDIATE) {
         u16 number = instruction.w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
         printf("%s, %d", reg_register_name, number);
+        instruction_->value = number; // TODO: parse the number before it gets print out
+    } else if (instruction.flags & ACCUMULATOR_ADDRESS) {
+        u16 number = instruction.w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        if (instruction.d) {
+            printf("%s, [%d]", reg_register_name, number);
+        } else {
+            printf("[%d], %s", number, reg_register_name);
+        }
         instruction_->value = number; // TODO: parse the number before it gets print out
     } else if (instruction.flags & REG_SOURCE_DEST) {
         if (!instruction.d) {
@@ -247,27 +255,18 @@ void decode_asm_8086(FileContent *file_content)
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
-            printf("mov ");
-            
             u8 second_byte = get_next_byte(file_content);
             
-            u8 w = first_byte & 1;
-            u8 mod = (second_byte >> 6) & 0b11;
-            u8 rm = second_byte & 0b111;
+            instruction.operation_type = Op_mov;
+            instruction.w = first_byte & 1;
+            instruction.mod = (second_byte >> 6) & 0b11;
+            instruction.rm = second_byte & 0b111;
+            instruction.flags = PRINT_WORD_BYTE_TEXT | DISPLACEMENT;
             
-            print_memory_address_and_displacement(w, rm, mod, file_content);
-            
-            if (w) {
-                u16 number = get_next_word(file_content);
-                printf(", word %d", number);
-            } else {
-                u8 number = get_next_byte(file_content);
-                printf(", byte %d", number);
-            }
+            print_instruction(&instruction, file_content);
         }
         else if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
         {
-            Instruction instruction = {};
             instruction.operation_type = Op_mov;
             instruction.w = (first_byte >> 3) & 1;
             instruction.reg = first_byte & 0b111;
@@ -277,35 +276,25 @@ void decode_asm_8086(FileContent *file_content)
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR)
         {
-            printf("mov ");
+            instruction.operation_type = Op_mov;
+            instruction.w = first_byte & 1;
+            instruction.dest_register = Register_a;
+            instruction.reg = 0b1000;
+            instruction.d = 1;
+            instruction.flags = ACCUMULATOR_ADDRESS;
             
-            printf("ax, ");
-            
-            u8 w = first_byte & 1;
-            
-            if (w) {
-                u16 number = get_next_word(file_content);
-                printf("[%d]", number);
-            } else {
-                u8 number = get_next_byte(file_content);
-                printf("[%d]", number);
-            }
+            print_instruction(&instruction, file_content);
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
         {
-            printf("mov ");
+            instruction.operation_type = Op_mov;
+            instruction.w = first_byte & 1;
+            instruction.source_register = Register_a;
+            instruction.reg = 0b1000;
+            instruction.d = 0;
+            instruction.flags = ACCUMULATOR_ADDRESS;
             
-            u8 w = first_byte & 1;
-            
-            if (w) {
-                u16 number = get_next_word(file_content);
-                printf("[%d]", number);
-            } else {
-                u8 number = get_next_byte(file_content);
-                printf("[%d]", number);
-            }
-            
-            printf(", ax");
+            print_instruction(&instruction, file_content);
         }
         else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
@@ -316,7 +305,7 @@ void decode_asm_8086(FileContent *file_content)
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.operation_type = arithmetic_operations[(second_byte >> 3) & 0b111];
-            instruction.flags = PRINT_WORD_BYTE_TEXT | PRINT_DISPLACEMENT;
+            instruction.flags = PRINT_WORD_BYTE_TEXT | DISPLACEMENT;
             
             print_instruction(&instruction, file_content);
         }
@@ -332,7 +321,7 @@ void decode_asm_8086(FileContent *file_content)
             instruction.reg = (second_byte >> 3) & 0b111;
             instruction.rm = second_byte & 0b111;
             instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
-            instruction.flags = REG_SOURCE_DEST | PRINT_DISPLACEMENT;
+            instruction.flags = REG_SOURCE_DEST | DISPLACEMENT;
             
             print_instruction(&instruction, file_content);
         }
@@ -343,7 +332,7 @@ void decode_asm_8086(FileContent *file_content)
             instruction.w = first_byte & 1;
             instruction.reg = 0b000; // ax || al register
             instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
-            instruction.flags = ACCUMULATOR;
+            instruction.flags = IMMEDIATE_ACCUMULATOR;
             
             print_instruction(&instruction, file_content);
         }

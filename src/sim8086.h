@@ -88,9 +88,10 @@ enum OperationType {
 enum Flags {
     PRINT_WORD_BYTE_TEXT = 0x1,
     REG_SOURCE_DEST = 0x2,
-    PRINT_DISPLACEMENT = 0x4,
-    ACCUMULATOR = 0x8,
+    DISPLACEMENT = 0x4,
+    IMMEDIATE_ACCUMULATOR = 0x8,
     IMMEDIATE = 0x10,
+    ACCUMULATOR_ADDRESS= 0x20,
 };
 
 OperationType arithmetic_operations[8] = {
