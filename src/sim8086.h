@@ -13,6 +13,7 @@ typedef int s32;
 typedef long long s64;
 
 #define assert(expression) if (!(expression)) {*((int *)0) = 0;}
+#define array_count(array) (sizeof(array) / sizeof((array)[0]))
 
 #define BYTE_TO_BINARY(byte) \
 (((byte) & (1 << 7)) ? '1' : '0'), \
@@ -27,7 +28,7 @@ typedef long long s64;
 
 enum Opcode {
     OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER  = 0b100010,
-    OPCODE_MOV_IMMEDIATE_REGISTER_OR_MEMORY = 0b1100011,
+    OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY = 0b1100011,
     OPCODE_MOV_IMMEDIATE_TO_REGISTER = 0b1011,
     OPCODE_MOV_MEMORY_TO_ACCUMULATOR = 0b1010000,
     OPCODE_MOV_ACCUMULATOR_TO_MEMORY = 0b1010001,
@@ -77,6 +78,7 @@ enum Mod {
 enum OperationType {
     Op_none,
     
+    Op_mov,
     Op_add,
     Op_sub,
     Op_cmp,
@@ -88,22 +90,42 @@ enum Flags {
     REG_SOURCE_DEST = 0x2,
     PRINT_DISPLACEMENT = 0x4,
     ACCUMULATOR = 0x8,
+    IMMEDIATE = 0x10,
 };
 
-struct Instruction {
-    OperationType operation_type;
-    u8 binary;
-    u8 d;
-    u8 s;
-    u8 w;
-    u8 mod;
-    u8 reg;
-    u8 rm;
-    u8 flags;
+OperationType arithmetic_operations[8] = {
+    Op_add,  // 000
+    Op_none, // 001
+    Op_none, // 010
+    Op_none, // 011
+    Op_none, // 100
+    Op_sub,  // 101
+    Op_none, // 110
+    Op_cmp,  // 111
 };
 
 
-char *register_table[16] = {
+struct FileContent {
+    u8 *memory;
+    u32 total_size;
+    u32 size_remaining;
+};
+
+enum RegisterType {
+    Register_a,
+    Register_b,
+    Register_c,
+    Register_d,
+    Register_sp,
+    Register_bp,
+    Register_si,
+    Register_di,
+    
+    Register_count,
+};
+
+// TODO: delete and use register matrix
+char *registers_names[16] = {
     // Byte-size registers
     "al", // 0000
     "cl", // 0001
@@ -125,22 +147,45 @@ char *register_table[16] = {
     "di", // 1111
 };
 
-OperationType arithmetic_operations[8] = {
-    Op_add,  // 000
-    Op_none, // 001
-    Op_none, // 010
-    Op_none, // 011
-    Op_none, // 100
-    Op_sub,  // 101
-    Op_none, // 110
-    Op_cmp,  // 111
+struct Register {
+    RegisterType type;
+    //char *name;
+    u16 value;
 };
 
-
-struct FileContent {
-    u8 *memory;
-    u32 total_size;
-    u32 size_remaining;
+struct Instruction {
+    OperationType operation_type;
+    RegisterType source_register;
+    RegisterType dest_register;
+    u8 binary;
+    u8 d;
+    u8 s;
+    u8 w;
+    u8 mod;
+    u8 reg;
+    u8 rm;
+    u8 flags;
+    u16 value;
 };
+
+RegisterType register_types[8][2] = {
+    { {Register_a}, {Register_a} },
+    { {Register_c}, {Register_c} },
+    { {Register_d}, {Register_d} },
+    { {Register_b}, {Register_b} },
+    { {Register_a}, {Register_sp} },
+    { {Register_c}, {Register_bp} },
+    { {Register_d}, {Register_si} },
+    { {Register_b}, {Register_di} },
+};
+
+struct State {
+    Register registers[8];
+};
+
+bool str_equals(char *a, char *b)
+{
+    return strcmp(a, b) == 0;
+}
 
 #endif //SIM8086_H
