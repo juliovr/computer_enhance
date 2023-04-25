@@ -1,5 +1,1 @@
-- Make decode_asm_8086 returns a list of instructions.
-- Create a function print_instructions that decode the instructions and for each one call print_instruction.
-- For the simulation, call decode function and simulate each one of them.
-
 - Write test suite that decode every assembly file, re-encode and compare the resulting files with the original ones.

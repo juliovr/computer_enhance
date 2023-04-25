@@ -106,42 +106,50 @@ void print_memory_address_and_displacement(u8 w, u8 rm, u8 mod, FileContent *fil
     }
 }
 
+char * get_opcode_name(OperationType operation_type, u8 binary)
+{
+    char *operation;
+    switch (operation_type)
+    {
+        case Op_mov: { operation = "mov "; } break;
+        case Op_add: { operation = "add "; } break;
+        case Op_sub: { operation = "sub "; } break;
+        case Op_cmp: { operation = "cmp "; } break;
+        case Op_jmp: {
+            switch (binary)
+            {
+                case OPCODE_JE:     { operation = "je"; } break;
+                case OPCODE_JL:     { operation = "jl"; } break;
+                case OPCODE_JLE:    { operation = "jle"; } break;
+                case OPCODE_JB:     { operation = "jb"; } break;
+                case OPCODE_JBE:    { operation = "jbe"; } break;
+                case OPCODE_JP:     { operation = "jp"; } break;
+                case OPCODE_JO:     { operation = "jo"; } break;
+                case OPCODE_JS:     { operation = "js"; } break;
+                case OPCODE_JNE:    { operation = "jne"; } break;
+                case OPCODE_JNL:    { operation = "jnl"; } break;
+                case OPCODE_JNLE:   { operation = "jnle"; } break;
+                case OPCODE_JNB:    { operation = "jnb"; } break;
+                case OPCODE_JNBE:   { operation = "jnbe"; } break;
+                case OPCODE_JNP:    { operation = "jnp"; } break;
+                case OPCODE_JNO:    { operation = "jno"; } break;
+                case OPCODE_JNS:    { operation = "jns"; } break;
+                case OPCODE_LOOP:   { operation = "loop"; } break;
+                case OPCODE_LOOPZ:  { operation = "loopz"; } break;
+                case OPCODE_LOOPNZ: { operation = "loopnz"; } break;
+                case OPCODE_JCXZ:   { operation = "jcxz"; } break;
+            }
+        } break;
+    }
+    
+    return operation;
+}
 
 void print_instruction(Instruction *instruction_, FileContent *file_content)
 {
     Instruction instruction = *instruction_;
-    switch (instruction.operation_type)
-    {
-        case Op_mov: { printf("mov "); } break;
-        case Op_add: { printf("add "); } break;
-        case Op_sub: { printf("sub "); } break;
-        case Op_cmp: { printf("cmp "); } break;
-        case Op_jmp: {
-            switch (instruction.binary)
-            {
-                case OPCODE_JE:     { printf("je"); } break;
-                case OPCODE_JL:     { printf("jl"); } break;
-                case OPCODE_JLE:    { printf("jle"); } break;
-                case OPCODE_JB:     { printf("jb"); } break;
-                case OPCODE_JBE:    { printf("jbe"); } break;
-                case OPCODE_JP:     { printf("jp"); } break;
-                case OPCODE_JO:     { printf("jo"); } break;
-                case OPCODE_JS:     { printf("js"); } break;
-                case OPCODE_JNE:    { printf("jne"); } break;
-                case OPCODE_JNL:    { printf("jnl"); } break;
-                case OPCODE_JNLE:   { printf("jnle"); } break;
-                case OPCODE_JNB:    { printf("jnb"); } break;
-                case OPCODE_JNBE:   { printf("jnbe"); } break;
-                case OPCODE_JNP:    { printf("jnp"); } break;
-                case OPCODE_JNO:    { printf("jno"); } break;
-                case OPCODE_JNS:    { printf("jns"); } break;
-                case OPCODE_LOOP:   { printf("loop"); } break;
-                case OPCODE_LOOPZ:  { printf("loopz"); } break;
-                case OPCODE_LOOPNZ: { printf("loopnz"); } break;
-                case OPCODE_JCXZ:   { printf("jcxz"); } break;
-            }
-        } break;
-    }
+    
+    printf(get_opcode_name(instruction.operation_type, instruction.binary));
     
     if (instruction.operation_type == Op_jmp) {
         // TODO: based on the increment place a label in the assembly and use that name here (it does not work with the number directly).
@@ -150,7 +158,7 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
         return;
     }
     
-    if (instruction.flags & PRINT_WORD_BYTE_TEXT) {
+    if (instruction.flags & WORD_BYTE_TEXT_REQUIRED) {
         if (instruction.w) {
             printf("word ");
         } else {
@@ -174,17 +182,15 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
     }
     
     if (instruction.flags & IMMEDIATE) {
-        u16 number = instruction.w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        u16 number = instruction.value;
         printf("%s, %d", reg_register_name, number);
-        instruction_->value = number; // TODO: parse the number before it gets print out
     } else if (instruction.flags & ACCUMULATOR_ADDRESS) {
-        u16 number = instruction.w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        u16 number = instruction.value;
         if (instruction.d) {
             printf("%s, [%d]", reg_register_name, number);
         } else {
             printf("[%d], %s", number, reg_register_name);
         }
-        instruction_->value = number; // TODO: parse the number before it gets print out
     } else if (instruction.flags & REG_SOURCE_DEST) {
         if (!instruction.d) {
             printf(", %s", reg_register_name);
@@ -199,6 +205,16 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
             printf(", %d", number);
             instruction_->value = number; // TODO: parse the number before it gets print out
         }
+    }
+}
+
+void print_instructions(Instruction *instructions, u32 count, FileContent *file_content)
+{
+    printf("bits 16\n");
+    for (int i = 0; i < count; ++i) {
+        Instruction instruction = instructions[i];
+        print_instruction(&instruction, file_content);
+        printf("\n");
     }
 }
 
@@ -228,8 +244,39 @@ bool is_opcode_jump(u8 opcode)
     return is_jump;
 }
 
-void decode_asm_8086(FileContent *file_content)
+void set_source_and_dest_registers(Instruction *instruction, FileContent *file_content)
 {
+    RegisterType reg_register = get_register_type(instruction->w, instruction->reg);
+    RegisterType rm_register  = get_register_type(instruction->w, instruction->rm);
+    
+    if (instruction->flags & REG_SOURCE_DEST) {
+        if (instruction->d) {
+            instruction->dest_register = reg_register;
+        } else {
+            instruction->source_register = reg_register;
+        }
+    } else if (instruction->flags & IMMEDIATE) {
+        u16 number = instruction->w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        instruction->dest_register = reg_register;
+        instruction->value = number;
+    } else if (instruction->flags & ACCUMULATOR_ADDRESS) {
+        u16 number = instruction->w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        instruction->value = number;
+        if (instruction->d) {
+            instruction->dest_register = reg_register;
+        } else {
+            instruction->source_register = reg_register;
+        }
+    }
+    
+    if (instruction->mod == MOD_REGISTER_MODE) {
+        instruction->dest_register = rm_register;
+    }
+}
+
+u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
+{
+    u32 count = 0;
     while (file_content->size_remaining)
     {
         u8 first_byte = get_next_byte(file_content);
@@ -248,6 +295,8 @@ void decode_asm_8086(FileContent *file_content)
             instruction.rm = second_byte & 0b111;
             instruction.reg = ((second_byte >> 3) & 0b111);
             instruction.flags = REG_SOURCE_DEST | DISPLACEMENT;
+            
+            set_source_and_dest_registers(&instruction, file_content);
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
@@ -257,7 +306,9 @@ void decode_asm_8086(FileContent *file_content)
             instruction.w = first_byte & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
-            instruction.flags = PRINT_WORD_BYTE_TEXT | DISPLACEMENT;
+            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | SIGN_EXTEND;
+            
+            set_source_and_dest_registers(&instruction, file_content);
         }
         else if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
         {
@@ -265,24 +316,19 @@ void decode_asm_8086(FileContent *file_content)
             instruction.w = (first_byte >> 3) & 1;
             instruction.reg = first_byte & 0b111;
             instruction.flags = IMMEDIATE;
+            
+            set_source_and_dest_registers(&instruction, file_content);
         }
-        else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR)
+        else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR ||
+                 ((first_byte >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
         {
             instruction.operation_type = Op_mov;
             instruction.w = first_byte & 1;
-            instruction.dest_register = Register_a;
-            instruction.reg = 0b1000;
-            instruction.d = 1;
+            instruction.reg = 0b000;
+            instruction.d = ((first_byte >> 1) & 1) ^ 1;
             instruction.flags = ACCUMULATOR_ADDRESS;
-        }
-        else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
-        {
-            instruction.operation_type = Op_mov;
-            instruction.w = first_byte & 1;
-            instruction.source_register = Register_a;
-            instruction.reg = 0b1000;
-            instruction.d = 0;
-            instruction.flags = ACCUMULATOR_ADDRESS;
+            
+            set_source_and_dest_registers(&instruction, file_content);
         }
         else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
@@ -293,7 +339,7 @@ void decode_asm_8086(FileContent *file_content)
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.operation_type = arithmetic_operations[(second_byte >> 3) & 0b111];
-            instruction.flags = PRINT_WORD_BYTE_TEXT | DISPLACEMENT;
+            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT;
         }
         else if ((((first_byte >> 2) & 0b111111) == OPCODE_ADD_REGISTER_OR_MEMORY) ||
                  (((first_byte >> 2) & 0b111111) == OPCODE_SUB_REGISTER_OR_MEMORY) ||
@@ -330,9 +376,10 @@ void decode_asm_8086(FileContent *file_content)
             break;
         }
         
-        print_instruction(&instruction, file_content);
-        printf("\n");
+        instructions[count++] = instruction;
     }
+    
+    return count;
 }
 
 void print_usage(char *program_name)
@@ -343,12 +390,30 @@ void print_usage(char *program_name)
     fprintf(stdout, "        --sim: simulate the dissasembly \n");
 }
 
-void simulate_instruction(State *state, Instruction instruction)
+void print_final_state(State state)
 {
-    state->registers[instruction.dest_register].value = instruction.value;
+    printf("\n");
+    printf("Final registers:\n");
+    printf("\tax: 0x%04hhx (%d)\n", state.registers[0].value, state.registers[0].value);
+    printf("\tbx: 0x%04hhx (%d)\n", state.registers[1].value, state.registers[1].value);
+    printf("\tcx: 0x%04hhx (%d)\n", state.registers[2].value, state.registers[2].value);
+    printf("\tdx: 0x%04hhx (%d)\n", state.registers[3].value, state.registers[3].value);
+    printf("\tsp: 0x%04hhx (%d)\n", state.registers[4].value, state.registers[4].value);
+    printf("\tbp: 0x%04hhx (%d)\n", state.registers[5].value, state.registers[5].value);
+    printf("\tsi: 0x%04hhx (%d)\n", state.registers[6].value, state.registers[6].value);
+    printf("\tdi: 0x%04hhx (%d)\n", state.registers[7].value, state.registers[7].value);
 }
 
-void simulate_asm_8086(FileContent *file_content)
+void simulate_instruction(State *state, Instruction instruction)
+{
+    if (instruction.source_register == Register_none) {
+        state->registers[instruction.dest_register - 1].value = instruction.value;
+    } else {
+        state->registers[instruction.dest_register - 1].value = state->registers[instruction.source_register - 1].value;
+    }
+}
+
+void simulate_asm_8086(Instruction *instructions, u32 count, FileContent *file_content)
 {
     // initialize state
     State state = {};
@@ -361,37 +426,14 @@ void simulate_asm_8086(FileContent *file_content)
     state.registers[6] = {Register_si, 0};
     state.registers[7] = {Register_di, 0};
     
-    while (file_content->size_remaining)
-    {
-        Instruction instruction = {};
-        
-        u8 first_byte = get_next_byte(file_content);
-        if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
-        {
-            instruction.operation_type = Op_mov;
-            instruction.w = (first_byte >> 3) & 1;
-            instruction.reg = first_byte & 0b111;
-            instruction.flags = IMMEDIATE;
-            instruction.dest_register = register_types[instruction.reg][instruction.w];
-            
-            print_instruction(&instruction, file_content);
-        }
-        
-        printf("\n");
-        
+    for (int i = 0; i < count; ++i) {
+        Instruction instruction = instructions[i];
         simulate_instruction(&state, instruction);
     }
     
-    printf("\n");
-    printf("Final registers:\n");
-    printf("\tax: 0x%04hhx (%d)\n", state.registers[0].value, state.registers[0].value);
-    printf("\tbx: 0x%04hhx (%d)\n", state.registers[1].value, state.registers[1].value);
-    printf("\tcx: 0x%04hhx (%d)\n", state.registers[2].value, state.registers[2].value);
-    printf("\tdx: 0x%04hhx (%d)\n", state.registers[3].value, state.registers[3].value);
-    printf("\tsp: 0x%04hhx (%d)\n", state.registers[4].value, state.registers[4].value);
-    printf("\tbp: 0x%04hhx (%d)\n", state.registers[5].value, state.registers[5].value);
-    printf("\tsi: 0x%04hhx (%d)\n", state.registers[6].value, state.registers[6].value);
-    printf("\tdi: 0x%04hhx (%d)\n", state.registers[7].value, state.registers[7].value);
+    print_instructions(instructions, count, file_content);
+    
+    print_final_state(state);
 }
 
 int main(int argc, char **argv)
@@ -433,16 +475,19 @@ int main(int argc, char **argv)
         
         fclose(file);
         
-        FileContent content = {};
-        content.memory         = memory;
-        content.total_size     = size;
-        content.size_remaining = size;
+        FileContent file_content = {};
+        file_content.memory         = memory;
+        file_content.total_size     = size;
+        file_content.size_remaining = size;
+        
+        
+        Instruction instructions[256];
+        u32 count = decode_asm_8086(&file_content, instructions);
         
         if (simulate) {
-            simulate_asm_8086(&content);
+            simulate_asm_8086(instructions, count, &file_content);
         } else {
-            printf("bits 16\n");
-            decode_asm_8086(&content);
+            print_instructions(instructions, count, &file_content);
         }
     }
     else

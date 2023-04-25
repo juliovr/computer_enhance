@@ -86,12 +86,13 @@ enum OperationType {
 };
 
 enum Flags {
-    PRINT_WORD_BYTE_TEXT = 0x1,
+    WORD_BYTE_TEXT_REQUIRED = 0x1,
     REG_SOURCE_DEST = 0x2,
     DISPLACEMENT = 0x4,
     IMMEDIATE_ACCUMULATOR = 0x8,
     IMMEDIATE = 0x10,
     ACCUMULATOR_ADDRESS= 0x20,
+    SIGN_EXTEND = 0x40,
 };
 
 OperationType arithmetic_operations[8] = {
@@ -113,6 +114,8 @@ struct FileContent {
 };
 
 enum RegisterType {
+    Register_none,
+    
     Register_a,
     Register_b,
     Register_c,
@@ -150,7 +153,6 @@ char *registers_names[16] = {
 
 struct Register {
     RegisterType type;
-    //char *name;
     u16 value;
 };
 
@@ -184,9 +186,19 @@ struct State {
     Register registers[8];
 };
 
-bool str_equals(char *a, char *b)
+inline bool str_equals(char *a, char *b)
 {
     return strcmp(a, b) == 0;
 }
+
+
+inline RegisterType get_register_type(u8 w, u8 register_bytes)
+{
+    u8 count = array_count(register_types);
+    assert(register_bytes < array_count(register_types));
+    RegisterType type = register_types[register_bytes][w];
+    return type;
+}
+
 
 #endif //SIM8086_H

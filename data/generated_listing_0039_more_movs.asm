@@ -1,3 +1,4 @@
+ERROR: opcode given by first byte [01100000] not implemented
 bits 16
 mov si, bx
 mov dh, al
@@ -9,9 +10,5 @@ mov dx, 3948
 mov dx, 61588
 mov al, [bx + si]
 mov bx, [bp + di]
-mov dx, [bp]
-mov ah, [bx + si + 4]
-mov al, [bx + si + 4999]
-mov [bx + di], cx
-mov [bp + si], cl
-mov [bp], ch
+mov dx, [bp + 4]
+add [bp + si - 32630], cl
