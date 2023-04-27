@@ -21,88 +21,42 @@ u16 get_next_word(FileContent *file_content)
     return word;
 }
 
-
-void print_memory_address_and_displacement(u8 w, u8 rm, u8 mod, FileContent *file_content)
+void print_memory_address_and_displacement(Instruction instruction)
 {
-    if (mod != MOD_REGISTER_MODE)
+    DisplacementAddress displacement = instruction.displacement_address;
+    if (displacement.first_displacement.type != Register_none ||
+        displacement.second_displacement.type != Register_none ||
+        displacement.offset)
     {
-        switch (rm)
-        {
-            case 0b000: {
-                printf("[bx + si");
-            } break;
+        printf("[");
+        if (displacement.first_displacement.type != Register_none) {
+            char *first_register = displacement.first_displacement.name;
+            printf("%s", first_register);
             
-            case 0b001: {
-                printf("[bx + di");
-            } break;
+            if (displacement.second_displacement.type != Register_none) {
+                char *second_register = displacement.second_displacement.name;
+                printf(" + %s", second_register);
+            }
             
-            case 0b010: {
-                printf("[bp + si");
-            } break;
+            if (displacement.offset) {
+                bool is_negative = (displacement.offset < 0);
+                char sign = is_negative ? '-' : '+';
+                s16 offset = is_negative ? displacement.offset * -1 : displacement.offset;
+                printf(" %c %d", sign, offset);
+            }
             
-            case 0b011: {
-                printf("[bp + di");
-            } break;
-            
-            case 0b100: {
-                printf("[si");
-            } break;
-            
-            case 0b101: {
-                printf("[di");
-            } break;
-            
-            case 0b110: {
-                if (mod == MOD_MEMORY_MODE) {
-                    printf("[");
-                } else {
-                    printf("[bp");
+        } else {
+            if (displacement.offset) {
+                bool is_negative = (displacement.offset < 0);
+                if (is_negative) {
+                    printf("- ");
                 }
-            } break;
-            
-            case 0b111: {
-                printf("[bx");
-            } break;
+                s16 offset = is_negative ? displacement.offset * -1 : displacement.offset;
+                printf("%d", offset);
+            }
         }
-    }
-    
-    switch (mod)
-    {
-        case MOD_MEMORY_MODE: {
-            if (rm == 0b110) {
-                u16 displacement = get_next_word(file_content);
-                printf("%d]", displacement);
-            } else {
-                printf("]");
-            }
-        } break;
         
-        case MOD_MEMORY_MODE_8_BIT_DISPLACEMENT: {
-            s8 number = get_next_byte(file_content);
-            
-            char sign = (number < 0) ? '-' : '+';
-            if (number) {
-                printf(" %c %d]", sign, (number < 0) ? -number : number);
-            } else {
-                printf("]");
-            }
-        } break;
-        
-        case MOD_MEMORY_MODE_16_BIT_DISPLACEMENT: {
-            s16 number = get_next_word(file_content);
-            
-            char sign = (number < 0) ? '-' : '+';
-            if (number) {
-                printf(" %c %d]", sign, (number < 0) ? -number : number);
-            } else {
-                printf("]");
-            }
-        } break;
-        
-        case MOD_REGISTER_MODE: {
-            char *register_name = registers_names[(w << 3) | rm];
-            printf("%s", register_name);
-        } break;
+        printf("]");
     }
 }
 
@@ -166,55 +120,53 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
         }
     }
     
-    char *reg_register_name = registers_names[(instruction.w << 3) | instruction.reg];
     if (instruction.flags & REG_SOURCE_DEST) {
-        if (instruction.d) {
-            printf("%s, ", reg_register_name);
+        if (instruction.dest_register.type != Register_none) {
+            printf("%s, ", instruction.dest_register.name);
         }
     }
     
     if (instruction.flags & IMMEDIATE_ACCUMULATOR) {
-        printf("%s", reg_register_name);
+        printf("%s", instruction.dest_register.name);
     }
     
     if (instruction.flags & DISPLACEMENT) {
-        print_memory_address_and_displacement(instruction.w, instruction.rm, instruction.mod, file_content);
+        print_memory_address_and_displacement(instruction);
     }
     
     if (instruction.flags & IMMEDIATE) {
         u16 number = instruction.value;
-        printf("%s, %d", reg_register_name, number);
+        printf("%s, %d", instruction.dest_register.name, number);
     } else if (instruction.flags & ACCUMULATOR_ADDRESS) {
         u16 number = instruction.value;
         if (instruction.d) {
-            printf("%s, [%d]", reg_register_name, number);
+            printf("%s, [%d]", instruction.dest_register.name, number);
         } else {
-            printf("[%d], %s", number, reg_register_name);
+            printf("[%d], %s", number, instruction.source_register.name);
         }
     } else if (instruction.flags & REG_SOURCE_DEST) {
-        if (!instruction.d) {
-            printf(", %s", reg_register_name);
+        if (instruction.source_register.type != Register_none) {
+            if (instruction.flags & DISPLACEMENT) {
+                printf(", ");
+            }
+            
+            printf("%s", instruction.source_register.name);
         }
     } else {
-        if (instruction.s == 0 && instruction.w == 1) {
-            u16 number = get_next_word(file_content);
-            printf(", %d", number);
-            instruction_->value = number; // TODO: parse the number before it gets print out
-        } else {
-            u8 number = get_next_byte(file_content);
-            printf(", %d", number);
-            instruction_->value = number; // TODO: parse the number before it gets print out
-        }
+        printf(", %d", instruction.value);
     }
 }
 
 void print_instructions(Instruction *instructions, u32 count, FileContent *file_content)
 {
-    printf("bits 16\n");
-    for (int i = 0; i < count; ++i) {
-        Instruction instruction = instructions[i];
-        print_instruction(&instruction, file_content);
-        printf("\n");
+    if (count)
+    {
+        printf("bits 16\n");
+        for (int i = 0; i < count; ++i) {
+            Instruction instruction = instructions[i];
+            print_instruction(&instruction, file_content);
+            printf("\n");
+        }
     }
 }
 
@@ -246,8 +198,14 @@ bool is_opcode_jump(u8 opcode)
 
 void set_source_and_dest_registers(Instruction *instruction, FileContent *file_content)
 {
-    RegisterType reg_register = get_register_type(instruction->w, instruction->reg);
-    RegisterType rm_register  = get_register_type(instruction->w, instruction->rm);
+    RegisterDefinition reg_register = get_register_definition(instruction->w, instruction->reg);
+    RegisterDefinition rm_register  = get_register_definition(instruction->w, instruction->rm);
+    
+    if (instruction->flags & HAS_DATA) {
+        u16 number = (instruction->s == 0 && instruction->w == 1) 
+            ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        instruction->value = number;
+    }
     
     if (instruction->flags & REG_SOURCE_DEST) {
         if (instruction->d) {
@@ -256,11 +214,9 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
             instruction->source_register = reg_register;
         }
     } else if (instruction->flags & IMMEDIATE) {
-        u16 number = instruction->w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
         instruction->dest_register = reg_register;
-        instruction->value = number;
     } else if (instruction->flags & ACCUMULATOR_ADDRESS) {
-        u16 number = instruction->w ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        u16 number = get_next_word(file_content);
         instruction->value = number;
         if (instruction->d) {
             instruction->dest_register = reg_register;
@@ -272,6 +228,84 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
     if (instruction->mod == MOD_REGISTER_MODE) {
         instruction->dest_register = rm_register;
     }
+}
+
+void calculate_displacement(Instruction *instruction, FileContent *file_content)
+{
+    if (!(instruction->flags & DISPLACEMENT)) {
+        return;
+    }
+    
+    DisplacementAddress displacement = {};
+    
+    if (instruction->mod != MOD_REGISTER_MODE)
+    {
+        switch (instruction->rm)
+        {
+            case 0b000: {
+                displacement.first_displacement = registers_definitions[3][1];
+                displacement.second_displacement = registers_definitions[6][1];
+            } break;
+            
+            case 0b001: {
+                displacement.first_displacement = registers_definitions[3][1];
+                displacement.second_displacement = registers_definitions[7][1];
+            } break;
+            
+            case 0b010: {
+                displacement.first_displacement = registers_definitions[5][1];
+                displacement.second_displacement = registers_definitions[6][1];
+            } break;
+            
+            case 0b011: {
+                displacement.first_displacement = registers_definitions[5][1];
+                displacement.second_displacement = registers_definitions[7][1];
+            } break;
+            
+            case 0b100: {
+                displacement.first_displacement = registers_definitions[6][1];
+            } break;
+            
+            case 0b101: {
+                displacement.first_displacement = registers_definitions[7][1];
+            } break;
+            
+            case 0b110: {
+                if (instruction->mod != MOD_MEMORY_MODE) {
+                    displacement.first_displacement = registers_definitions[5][1];
+                }
+            } break;
+            
+            case 0b111: {
+                displacement.first_displacement = registers_definitions[3][1];
+            } break;
+        }
+    }
+    
+    switch (instruction->mod)
+    {
+        case MOD_MEMORY_MODE: {
+            if (instruction->rm == 0b110) {
+                displacement.offset = (s16)get_next_word(file_content);
+            }
+        } break;
+        
+        case MOD_MEMORY_MODE_8_BIT_DISPLACEMENT: {
+            displacement.offset = (s8)get_next_byte(file_content);
+        } break;
+        
+        case MOD_MEMORY_MODE_16_BIT_DISPLACEMENT: {
+            displacement.offset = (s16)get_next_word(file_content);
+        } break;
+        
+        case MOD_REGISTER_MODE: {
+            // TODO: review
+            //char *register_name = registers_names[(w << 3) | rm];
+            ///printf("%s", register_name);
+        } break;
+    }
+    
+    instruction->displacement_address = displacement;
 }
 
 u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
@@ -294,9 +328,10 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.mod = ((second_byte >> 6) & 0b11);
             instruction.rm = second_byte & 0b111;
             instruction.reg = ((second_byte >> 3) & 0b111);
-            instruction.flags = REG_SOURCE_DEST | DISPLACEMENT;
-            
-            set_source_and_dest_registers(&instruction, file_content);
+            instruction.flags = REG_SOURCE_DEST;
+            if (instruction.mod != MOD_REGISTER_MODE) {
+                instruction.flags |= DISPLACEMENT;
+            }
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
@@ -306,18 +341,16 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.w = first_byte & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
-            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | SIGN_EXTEND;
+            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | HAS_DATA;
             
-            set_source_and_dest_registers(&instruction, file_content);
+            // TODO: I need to store the value in the next byte (or word). I did this already, just look it up
         }
         else if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
         {
             instruction.operation_type = Op_mov;
             instruction.w = (first_byte >> 3) & 1;
             instruction.reg = first_byte & 0b111;
-            instruction.flags = IMMEDIATE;
-            
-            set_source_and_dest_registers(&instruction, file_content);
+            instruction.flags = IMMEDIATE | HAS_DATA;
         }
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR ||
                  ((first_byte >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
@@ -327,8 +360,6 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.reg = 0b000;
             instruction.d = ((first_byte >> 1) & 1) ^ 1;
             instruction.flags = ACCUMULATOR_ADDRESS;
-            
-            set_source_and_dest_registers(&instruction, file_content);
         }
         else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
@@ -339,7 +370,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.operation_type = arithmetic_operations[(second_byte >> 3) & 0b111];
-            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT;
+            instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | HAS_DATA;
         }
         else if ((((first_byte >> 2) & 0b111111) == OPCODE_ADD_REGISTER_OR_MEMORY) ||
                  (((first_byte >> 2) & 0b111111) == OPCODE_SUB_REGISTER_OR_MEMORY) ||
@@ -362,7 +393,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.w = first_byte & 1;
             instruction.reg = 0b000; // ax || al register
             instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
-            instruction.flags = IMMEDIATE_ACCUMULATOR;
+            instruction.flags = IMMEDIATE_ACCUMULATOR | HAS_DATA;
         }
         else if (is_opcode_jump(first_byte))
         {
@@ -373,8 +404,12 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             printf("ERROR: opcode given by first byte [%c%c%c%c%c%c%c%c] not implemented\n", 
                    BYTE_TO_BINARY(first_byte));
             
+            count = 0;
             break;
         }
+        
+        calculate_displacement(&instruction, file_content);
+        set_source_and_dest_registers(&instruction, file_content);
         
         instructions[count++] = instruction;
     }
@@ -406,10 +441,11 @@ void print_final_state(State state)
 
 void simulate_instruction(State *state, Instruction instruction)
 {
-    if (instruction.source_register == Register_none) {
-        state->registers[instruction.dest_register - 1].value = instruction.value;
+    if (instruction.source_register.type == Register_none) {
+        state->registers[instruction.dest_register.type - 1].value = instruction.value;
     } else {
-        state->registers[instruction.dest_register - 1].value = state->registers[instruction.source_register - 1].value;
+        state->registers[instruction.dest_register.type - 1].value =
+            state->registers[instruction.source_register.type - 1].value;
     }
 }
 

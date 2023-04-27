@@ -92,7 +92,7 @@ enum Flags {
     IMMEDIATE_ACCUMULATOR = 0x8,
     IMMEDIATE = 0x10,
     ACCUMULATOR_ADDRESS= 0x20,
-    SIGN_EXTEND = 0x40,
+    HAS_DATA = 0x40,
 };
 
 OperationType arithmetic_operations[8] = {
@@ -128,38 +128,33 @@ enum RegisterType {
     Register_count,
 };
 
-// TODO: delete and use register matrix
-char *registers_names[16] = {
-    // Byte-size registers
-    "al", // 0000
-    "cl", // 0001
-    "dl", // 0010
-    "bl", // 0011
-    "ah", // 0100
-    "ch", // 0101
-    "dh", // 0110
-    "bh", // 0111
-    
-    // Word-size registers
-    "ax", // 1000
-    "cx", // 1001
-    "dx", // 1010
-    "bx", // 1011
-    "sp", // 1100
-    "bp", // 1101
-    "si", // 1110
-    "di", // 1111
+struct RegisterDefinition {
+    RegisterType type;
+    char *name;
+    u8 bytes;
 };
 
-struct Register {
-    RegisterType type;
-    u16 value;
+RegisterDefinition registers_definitions[8][2] = {
+    { {Register_a, "al", 0b0000}, {Register_a,  "ax", 0b1000} },
+    { {Register_c, "cl", 0b0001}, {Register_c,  "cx", 0b1001} },
+    { {Register_d, "dl", 0b0010}, {Register_d,  "dx", 0b1010} },
+    { {Register_b, "bl", 0b0011}, {Register_b,  "bx", 0b1011} },
+    { {Register_a, "ah", 0b0100}, {Register_sp, "sp", 0b1100} },
+    { {Register_c, "ch", 0b0101}, {Register_bp, "bp", 0b1101} },
+    { {Register_d, "dh", 0b0110}, {Register_si, "si", 0b1110} },
+    { {Register_b, "bh", 0b0111}, {Register_di, "di", 0b1111} },
+};
+
+struct DisplacementAddress {
+    RegisterDefinition first_displacement;
+    RegisterDefinition second_displacement;
+    s16 offset;
 };
 
 struct Instruction {
     OperationType operation_type;
-    RegisterType source_register;
-    RegisterType dest_register;
+    RegisterDefinition source_register;
+    RegisterDefinition dest_register;
     u8 binary;
     u8 d;
     u8 s;
@@ -169,17 +164,12 @@ struct Instruction {
     u8 rm;
     u8 flags;
     u16 value;
+    DisplacementAddress displacement_address;
 };
 
-RegisterType register_types[8][2] = {
-    { {Register_a}, {Register_a} },
-    { {Register_c}, {Register_c} },
-    { {Register_d}, {Register_d} },
-    { {Register_b}, {Register_b} },
-    { {Register_a}, {Register_sp} },
-    { {Register_c}, {Register_bp} },
-    { {Register_d}, {Register_si} },
-    { {Register_b}, {Register_di} },
+struct Register {
+    RegisterType type;
+    u16 value;
 };
 
 struct State {
@@ -192,12 +182,12 @@ inline bool str_equals(char *a, char *b)
 }
 
 
-inline RegisterType get_register_type(u8 w, u8 register_bytes)
+inline RegisterDefinition get_register_definition(u8 w, u8 register_bytes)
 {
-    u8 count = array_count(register_types);
-    assert(register_bytes < array_count(register_types));
-    RegisterType type = register_types[register_bytes][w];
-    return type;
+    assert(register_bytes < array_count(registers_definitions));
+    
+    RegisterDefinition register_definition = registers_definitions[register_bytes][w];
+    return register_definition;
 }
 
 
