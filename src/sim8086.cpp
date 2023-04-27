@@ -29,6 +29,7 @@ void print_memory_address_and_displacement(Instruction instruction)
         displacement.offset)
     {
         printf("[");
+        
         if (displacement.first_displacement.type != Register_none) {
             char *first_register = displacement.first_displacement.name;
             printf("%s", first_register);
@@ -120,13 +121,14 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
         }
     }
     
-    if (instruction.flags & REG_SOURCE_DEST) {
-        if (instruction.dest_register.type != Register_none) {
-            printf("%s, ", instruction.dest_register.name);
-        }
-    }
     
     if (instruction.flags & IMMEDIATE_ACCUMULATOR) {
+        printf("%s", instruction.dest_register.name);
+    }
+    
+    if (instruction.flags & REG_SOURCE_DEST && instruction.dest_register.type != Register_none) {
+        printf("%s, ", instruction.dest_register.name);
+    } else if (instruction.mod == MOD_REGISTER_MODE) {
         printf("%s", instruction.dest_register.name);
     }
     
@@ -146,7 +148,8 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
         }
     } else if (instruction.flags & REG_SOURCE_DEST) {
         if (instruction.source_register.type != Register_none) {
-            if (instruction.flags & DISPLACEMENT) {
+            if (instruction.flags & DISPLACEMENT &&
+                instruction.displacement_address.first_displacement.type != Register_none) {
                 printf(", ");
             }
             
@@ -213,7 +216,8 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
         } else {
             instruction->source_register = reg_register;
         }
-    } else if (instruction->flags & IMMEDIATE) {
+    } else if (instruction->flags & IMMEDIATE ||
+               instruction->flags & IMMEDIATE_ACCUMULATOR) {
         instruction->dest_register = reg_register;
     } else if (instruction->flags & ACCUMULATOR_ADDRESS) {
         u16 number = get_next_word(file_content);
@@ -299,9 +303,7 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
         } break;
         
         case MOD_REGISTER_MODE: {
-            // TODO: review
-            //char *register_name = registers_names[(w << 3) | rm];
-            ///printf("%s", register_name);
+            // No displacement
         } break;
     }
     

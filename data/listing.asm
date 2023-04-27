@@ -1,4 +1,3 @@
 bits 16
 
-mov bp, [5]
-;mov bx, [3458]
+add ax, 1000
