@@ -155,6 +155,8 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
             
             printf("%s", instruction.source_register.name);
         }
+    } else if ((instruction.flags & SEGMENT) && instruction.source_register.type != Register_none) {
+        printf(", %s", instruction.source_register.name);
     } else {
         printf(", %d", instruction.value);
     }
@@ -230,7 +232,18 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
     }
     
     if (instruction->mod == MOD_REGISTER_MODE) {
-        instruction->dest_register = rm_register;
+        if (instruction->flags & SEGMENT) {
+            RegisterDefinition segment_register = get_segment_register_definition(instruction->sr);
+            if (instruction->d) {
+                instruction->dest_register = rm_register;
+                instruction->source_register = segment_register;
+            } else {
+                instruction->dest_register = segment_register;
+                instruction->source_register = rm_register;
+            }
+        } else {
+            instruction->dest_register = rm_register;
+        }
     }
 }
 
@@ -363,6 +376,18 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.d = ((first_byte >> 1) & 1) ^ 1;
             instruction.flags = ACCUMULATOR_ADDRESS;
         }
+        else if ((first_byte == OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER) ||
+                 (first_byte == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY)) {
+            u8 second_byte = get_next_byte(file_content);
+            
+            instruction.operation_type = Op_mov;
+            instruction.w = 1;
+            instruction.mod = (second_byte >> 6) & 0b11;
+            instruction.sr = (second_byte >> 3) & 0b111;
+            instruction.rm = second_byte & 0b111;
+            instruction.d = ((first_byte >> 1) & 1) ^ 1;
+            instruction.flags = SEGMENT;
+        }
         else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
             u8 second_byte = get_next_byte(file_content);
@@ -424,30 +449,70 @@ void print_usage(char *program_name)
     fprintf(stdout, "USAGE:  %s [flags] [compiled 8086 program]\n", program_name);
     fprintf(stdout, "    flags:\n");
     fprintf(stdout, "        nothing: print the dissasembly\n");
-    fprintf(stdout, "        --sim: simulate the dissasembly \n");
+    fprintf(stdout, "        --sim: simulate the instructions\n");
 }
 
 void print_final_state(State state)
 {
     printf("\n");
     printf("Final registers:\n");
-    printf("\tax: 0x%04hhx (%d)\n", state.registers[0].value, state.registers[0].value);
-    printf("\tbx: 0x%04hhx (%d)\n", state.registers[1].value, state.registers[1].value);
-    printf("\tcx: 0x%04hhx (%d)\n", state.registers[2].value, state.registers[2].value);
-    printf("\tdx: 0x%04hhx (%d)\n", state.registers[3].value, state.registers[3].value);
-    printf("\tsp: 0x%04hhx (%d)\n", state.registers[4].value, state.registers[4].value);
-    printf("\tbp: 0x%04hhx (%d)\n", state.registers[5].value, state.registers[5].value);
-    printf("\tsi: 0x%04hhx (%d)\n", state.registers[6].value, state.registers[6].value);
-    printf("\tdi: 0x%04hhx (%d)\n", state.registers[7].value, state.registers[7].value);
+    printf("\tax: 0x%04hx (%d)\n", state.registers[0].value, state.registers[0].value);
+    printf("\tbx: 0x%04hx (%d)\n", state.registers[1].value, state.registers[1].value);
+    printf("\tcx: 0x%04hx (%d)\n", state.registers[2].value, state.registers[2].value);
+    printf("\tdx: 0x%04hx (%d)\n", state.registers[3].value, state.registers[3].value);
+    printf("\tsp: 0x%04hx (%d)\n", state.registers[4].value, state.registers[4].value);
+    printf("\tbp: 0x%04hx (%d)\n", state.registers[5].value, state.registers[5].value);
+    printf("\tsi: 0x%04hx (%d)\n", state.registers[6].value, state.registers[6].value);
+    printf("\tdi: 0x%04hx (%d)\n", state.registers[7].value, state.registers[7].value);
+    printf("\tes: 0x%04hx (%d)\n", state.registers[8].value, state.registers[8].value);
+    printf("\tcs: 0x%04hx (%d)\n", state.registers[9].value, state.registers[9].value);
+    printf("\tss: 0x%04hx (%d)\n", state.registers[10].value, state.registers[10].value);
+    printf("\tds: 0x%04hx (%d)\n", state.registers[11].value, state.registers[11].value);
 }
 
 void simulate_instruction(State *state, Instruction instruction)
 {
     if (instruction.source_register.type == Register_none) {
-        state->registers[instruction.dest_register.type - 1].value = instruction.value;
+        if ((instruction.dest_register.bytes >> 3) & 1) {
+            state->registers[instruction.dest_register.type - 1].value = instruction.value;
+        } else {
+            u16 value;
+            if (instruction.dest_register.bytes & 0b0100) {
+                // High bits
+                state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
+                value = (instruction.value << 8);
+            } else {
+                // Lower bits
+                state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
+                value = (u8)instruction.value;
+            }
+            
+            state->registers[instruction.dest_register.type - 1].value |= value;
+        }
     } else {
-        state->registers[instruction.dest_register.type - 1].value =
-            state->registers[instruction.source_register.type - 1].value;
+        if ((instruction.source_register.bytes >> 3) & 1) {
+            state->registers[instruction.dest_register.type - 1].value =
+                state->registers[instruction.source_register.type - 1].value;
+        } else {
+            u16 value;
+            if (instruction.source_register.bytes & 0b0100) {
+                // High bits
+                value = (state->registers[instruction.source_register.type - 1].value >> 8);
+            } else {
+                // Lower bits
+                value = (state->registers[instruction.source_register.type - 1].value & 0xFF);
+            }
+            
+            if (instruction.dest_register.bytes & 0b0100) {
+                // High bits
+                state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
+                state->registers[instruction.dest_register.type - 1].value |= (value << 8);
+            } else {
+                // Lower bits
+                state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
+                state->registers[instruction.dest_register.type - 1].value |= (value & 0xFF);
+            }
+        }
     }
 }
 
@@ -463,6 +528,10 @@ void simulate_asm_8086(Instruction *instructions, u32 count, FileContent *file_c
     state.registers[5] = {Register_bp, 0};
     state.registers[6] = {Register_si, 0};
     state.registers[7] = {Register_di, 0};
+    state.registers[8] = {Register_es, 0};
+    state.registers[9] = {Register_cs, 0};
+    state.registers[10] = {Register_ss, 0};
+    state.registers[11] = {Register_ds, 0};
     
     for (int i = 0; i < count; ++i) {
         Instruction instruction = instructions[i];

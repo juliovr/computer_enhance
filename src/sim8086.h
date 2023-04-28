@@ -32,6 +32,8 @@ enum Opcode {
     OPCODE_MOV_IMMEDIATE_TO_REGISTER = 0b1011,
     OPCODE_MOV_MEMORY_TO_ACCUMULATOR = 0b1010000,
     OPCODE_MOV_ACCUMULATOR_TO_MEMORY = 0b1010001,
+    OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER = 0b10001110,
+    OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY = 0b10001100,
     
     OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY = 0b100000,
     
@@ -93,6 +95,7 @@ enum Flags {
     IMMEDIATE = 0x10,
     ACCUMULATOR_ADDRESS= 0x20,
     HAS_DATA = 0x40,
+    SEGMENT = 0x80,
 };
 
 OperationType arithmetic_operations[8] = {
@@ -125,6 +128,11 @@ enum RegisterType {
     Register_si,
     Register_di,
     
+    Register_es,
+    Register_cs,
+    Register_ss,
+    Register_ds,
+    
     Register_count,
 };
 
@@ -145,6 +153,15 @@ RegisterDefinition registers_definitions[8][2] = {
     { {Register_b, "bh", 0b0111}, {Register_di, "di", 0b1111} },
 };
 
+// These register are only 2 bits long, but the leading 2 aditional "11" bits are for identify these registers
+// as if were wide in the simulation.
+RegisterDefinition segment_registers[4] = {
+    {Register_es, "es", 0b1100},
+    {Register_cs, "cs", 0b1101},
+    {Register_ss, "ss", 0b1110},
+    {Register_ds, "ds", 0b1111},
+};
+
 struct DisplacementAddress {
     RegisterDefinition first_displacement;
     RegisterDefinition second_displacement;
@@ -162,6 +179,7 @@ struct Instruction {
     u8 mod;
     u8 reg;
     u8 rm;
+    u8 sr;
     u8 flags;
     u16 value;
     DisplacementAddress displacement_address;
@@ -173,7 +191,7 @@ struct Register {
 };
 
 struct State {
-    Register registers[8];
+    Register registers[12];
 };
 
 inline bool str_equals(char *a, char *b)
@@ -190,5 +208,12 @@ inline RegisterDefinition get_register_definition(u8 w, u8 register_bytes)
     return register_definition;
 }
 
+inline RegisterDefinition get_segment_register_definition(u8 sr)
+{
+    assert(sr < array_count(segment_registers));
+    
+    RegisterDefinition segment_register = segment_registers[sr];
+    return segment_register;
+}
 
 #endif //SIM8086_H
