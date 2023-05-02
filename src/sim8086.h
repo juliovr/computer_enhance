@@ -192,6 +192,9 @@ struct Register {
 
 struct State {
     Register registers[12];
+    bool parity_flag;
+    bool zero_flag;
+    bool sign_flag;
 };
 
 inline bool str_equals(char *a, char *b)
@@ -214,6 +217,17 @@ inline RegisterDefinition get_segment_register_definition(u8 sr)
     
     RegisterDefinition segment_register = segment_registers[sr];
     return segment_register;
+}
+
+inline u8 count_bits(int n)
+{
+    u8 count = 0;
+    while (n) {
+        count += (n & 1);
+        n >>= 1;
+    }
+    
+    return count;
 }
 
 #endif //SIM8086_H

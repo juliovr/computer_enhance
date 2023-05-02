@@ -468,51 +468,101 @@ void print_final_state(State state)
     printf("\tcs: 0x%04hx (%d)\n", state.registers[9].value, state.registers[9].value);
     printf("\tss: 0x%04hx (%d)\n", state.registers[10].value, state.registers[10].value);
     printf("\tds: 0x%04hx (%d)\n", state.registers[11].value, state.registers[11].value);
+    printf("\n");
+    
+    printf("    Flags: ");
+    if (state.parity_flag) { printf("P"); }
+    if (state.zero_flag) { printf("Z"); }
+    if (state.sign_flag) { printf("S"); }
 }
 
 void simulate_instruction(State *state, Instruction instruction)
 {
-    if (instruction.source_register.type == Register_none) {
-        if ((instruction.dest_register.bytes >> 3) & 1) {
-            state->registers[instruction.dest_register.type - 1].value = instruction.value;
-        } else {
-            u16 value;
-            if (instruction.dest_register.bytes & 0b0100) {
-                // High bits
-                state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
-                value = (instruction.value << 8);
-            } else {
-                // Lower bits
-                state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
-                value = (u8)instruction.value;
+    switch (instruction.operation_type)
+    {
+        case Op_mov: {
+            if (instruction.source_register.type == Register_none)
+            {
+                if ((instruction.dest_register.bytes >> 3) & 1) {
+                    state->registers[instruction.dest_register.type - 1].value = instruction.value;
+                } else {
+                    u16 value;
+                    if (instruction.dest_register.bytes & 0b0100) {
+                        // High bits
+                        state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
+                        value = (instruction.value << 8);
+                    } else {
+                        // Lower bits
+                        state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
+                        value = (u8)instruction.value;
+                    }
+                    
+                    state->registers[instruction.dest_register.type - 1].value |= value;
+                }
+            }
+            else
+            {
+                if ((instruction.source_register.bytes >> 3) & 1) {
+                    state->registers[instruction.dest_register.type - 1].value =
+                        state->registers[instruction.source_register.type - 1].value;
+                } else {
+                    u16 value;
+                    if (instruction.source_register.bytes & 0b0100) {
+                        // High bits
+                        value = (state->registers[instruction.source_register.type - 1].value >> 8);
+                    } else {
+                        // Lower bits
+                        value = (state->registers[instruction.source_register.type - 1].value & 0xFF);
+                    }
+                    
+                    if (instruction.dest_register.bytes & 0b0100) {
+                        // High bits
+                        state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
+                        state->registers[instruction.dest_register.type - 1].value |= (value << 8);
+                    } else {
+                        // Lower bits
+                        state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
+                        state->registers[instruction.dest_register.type - 1].value |= (value & 0xFF);
+                    }
+                }
+            }
+        } break;
+        
+        case Op_add: {
+            if (instruction.source_register.type == Register_none)
+            {
+                state->registers[instruction.dest_register.type - 1].value += instruction.value;
+            }
+            else
+            {
+                state->registers[instruction.dest_register.type - 1].value +=
+                    state->registers[instruction.source_register.type - 1].value;
             }
             
-            state->registers[instruction.dest_register.type - 1].value |= value;
-        }
-    } else {
-        if ((instruction.source_register.bytes >> 3) & 1) {
-            state->registers[instruction.dest_register.type - 1].value =
-                state->registers[instruction.source_register.type - 1].value;
-        } else {
-            u16 value;
-            if (instruction.source_register.bytes & 0b0100) {
-                // High bits
-                value = (state->registers[instruction.source_register.type - 1].value >> 8);
-            } else {
-                // Lower bits
-                value = (state->registers[instruction.source_register.type - 1].value & 0xFF);
+            state->parity_flag = (count_bits(state->registers[instruction.dest_register.type - 1].value) % 2 == 0);
+            state->zero_flag = (state->registers[instruction.dest_register.type - 1].value == 0);
+            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+        } break;
+        
+        case Op_sub: {
+            if (instruction.source_register.type == Register_none)
+            {
+                state->registers[instruction.dest_register.type - 1].value -= instruction.value;
+            }
+            else
+            {
+                state->registers[instruction.dest_register.type - 1].value -=
+                    state->registers[instruction.source_register.type - 1].value;
             }
             
-            if (instruction.dest_register.bytes & 0b0100) {
-                // High bits
-                state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
-                state->registers[instruction.dest_register.type - 1].value |= (value << 8);
-            } else {
-                // Lower bits
-                state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
-                state->registers[instruction.dest_register.type - 1].value |= (value & 0xFF);
-            }
-        }
+            state->parity_flag = (count_bits(state->registers[instruction.dest_register.type - 1].value) % 2 == 0);
+            state->zero_flag = (state->registers[instruction.dest_register.type - 1].value == 0);
+            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+        } break;
+        
+        case Op_cmp: {
+            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+        } break;
     }
 }
 
