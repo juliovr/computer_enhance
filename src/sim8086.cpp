@@ -207,8 +207,18 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
     RegisterDefinition rm_register  = get_register_definition(instruction->w, instruction->rm);
     
     if (instruction->flags & HAS_DATA) {
-        u16 number = (instruction->s == 0 && instruction->w == 1) 
-            ? get_next_word(file_content) : (u16)get_next_byte(file_content);
+        u16 number;
+        if (instruction->w == 1) {
+            if (instruction->s == 0)  {
+                number = get_next_word(file_content);
+            } else {
+                // Sign-extended
+                number = (u16)get_next_byte(file_content) | 0xFF00;
+            }
+        } else {
+            (u16)get_next_byte(file_content);
+        }
+        
         instruction->value = number;
     }
     
@@ -471,9 +481,12 @@ void print_final_state(State state)
     printf("\n");
     
     printf("    Flags: ");
-    if (state.parity_flag) { printf("P"); }
-    if (state.zero_flag) { printf("Z"); }
-    if (state.sign_flag) { printf("S"); }
+    if (state.carry_flag)           { printf("C"); }
+    if (state.parity_flag)          { printf("P"); }
+    if (state.auxiliary_carry_flag) { printf("A"); }
+    if (state.zero_flag)            { printf("Z"); }
+    if (state.sign_flag)            { printf("S"); }
+    if (state.overflow_flag)        { printf("O"); }
 }
 
 void simulate_instruction(State *state, Instruction instruction)
@@ -526,42 +539,72 @@ void simulate_instruction(State *state, Instruction instruction)
                     }
                 }
             }
+            
+            state->parity_flag = false;
+            state->zero_flag = false;
+            state->sign_flag = false;
+            state->overflow_flag = false;
+            state->carry_flag = false;
+            state->auxiliary_carry_flag = false;
         } break;
         
         case Op_add: {
-            if (instruction.source_register.type == Register_none)
-            {
-                state->registers[instruction.dest_register.type - 1].value += instruction.value;
-            }
-            else
-            {
-                state->registers[instruction.dest_register.type - 1].value +=
-                    state->registers[instruction.source_register.type - 1].value;
+            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 source_value;
+            if (instruction.source_register.type == Register_none) {
+                source_value = instruction.value;
+            } else {
+                source_value = state->registers[instruction.source_register.type - 1].value;
             }
             
-            state->parity_flag = (count_bits(state->registers[instruction.dest_register.type - 1].value) % 2 == 0);
-            state->zero_flag = (state->registers[instruction.dest_register.type - 1].value == 0);
-            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+            state->registers[instruction.dest_register.type - 1].value += source_value;
+            
+            u16 new_value = state->registers[instruction.dest_register.type - 1].value;
+            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->zero_flag = (new_value == 0);
+            state->sign_flag = ((new_value >> 15) & 1);
+            state->overflow_flag = (((prev_value & 0x8000) == (source_value & 0x8000)) && 
+                                    ((new_value & 0x8000) != (prev_value & 0x8000)));
+            state->carry_flag = (MAX_U16 - prev_value) < source_value;
+            state->auxiliary_carry_flag = ((((prev_value >> 3) & 1) != ((new_value >> 3) & 1)) &&
+                                           (((prev_value >> 4) & 1) != ((new_value >> 4) & 1)));
         } break;
         
         case Op_sub: {
-            if (instruction.source_register.type == Register_none)
-            {
-                state->registers[instruction.dest_register.type - 1].value -= instruction.value;
-            }
-            else
-            {
-                state->registers[instruction.dest_register.type - 1].value -=
-                    state->registers[instruction.source_register.type - 1].value;
+            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 source_value;
+            if (instruction.source_register.type == Register_none) {
+                source_value = instruction.value;
+            } else {
+                source_value = state->registers[instruction.source_register.type - 1].value;
             }
             
-            state->parity_flag = (count_bits(state->registers[instruction.dest_register.type - 1].value) % 2 == 0);
-            state->zero_flag = (state->registers[instruction.dest_register.type - 1].value == 0);
-            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+            state->registers[instruction.dest_register.type - 1].value -= source_value;
+            
+            u16 new_value = state->registers[instruction.dest_register.type - 1].value;
+            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->zero_flag = (new_value == 0);
+            state->sign_flag = ((new_value >> 15) & 1);
+            state->overflow_flag = (((prev_value & 0x8000) != (source_value & 0x8000)) && 
+                                    ((new_value & 0x8000) != (prev_value & 0x8000)));
+            state->carry_flag = prev_value < source_value;
+            state->auxiliary_carry_flag = ((((prev_value >> 3) & 1) != ((new_value >> 3) & 1)) &&
+                                           (((prev_value >> 4) & 1) != ((new_value >> 4) & 1)));
         } break;
         
         case Op_cmp: {
-            state->sign_flag = ((state->registers[instruction.dest_register.type - 1].value >> 15) & 1);
+            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 source_value = state->registers[instruction.source_register.type - 1].value;
+            u16 new_value = prev_value - source_value;
+            
+            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->zero_flag = (new_value == 0);
+            state->sign_flag = ((new_value >> 15) & 1);
+            state->overflow_flag = (((prev_value & 0x8000) != (source_value & 0x8000)) && 
+                                    ((new_value & 0x8000) != (prev_value & 0x8000)));
+            state->carry_flag = prev_value < source_value;
+            state->auxiliary_carry_flag = ((((prev_value >> 3) & 1) != ((new_value >> 3) & 1)) &&
+                                           (((prev_value >> 4) & 1) != ((new_value >> 4) & 1)));
         } break;
     }
 }

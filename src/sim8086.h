@@ -12,6 +12,9 @@ typedef short s16;
 typedef int s32;
 typedef long long s64;
 
+#define MAX_U16 0xFFFF
+#define MAX_U8 0xFF
+
 #define assert(expression) if (!(expression)) {*((int *)0) = 0;}
 #define array_count(array) (sizeof(array) / sizeof((array)[0]))
 
@@ -192,9 +195,12 @@ struct Register {
 
 struct State {
     Register registers[12];
+    bool carry_flag;
     bool parity_flag;
     bool zero_flag;
     bool sign_flag;
+    bool overflow_flag;
+    bool auxiliary_carry_flag;
 };
 
 inline bool str_equals(char *a, char *b)
