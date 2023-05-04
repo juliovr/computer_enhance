@@ -100,16 +100,15 @@ char * get_opcode_name(OperationType operation_type, u8 binary)
     return operation;
 }
 
-void print_instruction(Instruction *instruction_, FileContent *file_content)
+void print_instruction(Instruction *instruction_)
 {
     Instruction instruction = *instruction_;
     
     printf(get_opcode_name(instruction.operation_type, instruction.binary));
     
     if (instruction.operation_type == Op_jmp) {
-        // TODO: based on the increment place a label in the assembly and use that name here (it does not work with the number directly).
-        s8 increment = get_next_byte(file_content);
-        printf(" %d", increment);
+        printf(" $%d", ((s8)instruction.value + 2)); // Explicit ip value (instead of label) should not consider the 2 bytes used in this instruction.
+        
         return;
     }
     
@@ -162,14 +161,15 @@ void print_instruction(Instruction *instruction_, FileContent *file_content)
     }
 }
 
-void print_instructions(Instruction *instructions, u32 count, FileContent *file_content)
+void print_instructions(Instruction *instructions, u32 count)
 {
     if (count)
     {
         printf("bits 16\n");
         for (int i = 0; i < count; ++i) {
             Instruction instruction = instructions[i];
-            print_instruction(&instruction, file_content);
+            print_instruction(&instruction);
+            
             printf("\n");
         }
     }
@@ -211,12 +211,19 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
         if (instruction->w == 1) {
             if (instruction->s == 0)  {
                 number = get_next_word(file_content);
+                instruction->bytes_used += 2;
             } else {
-                // Sign-extended
-                number = (u16)get_next_byte(file_content) | 0xFF00;
+                number = (u16)get_next_byte(file_content);
+                if (number < 0) {
+                    // Sign-extended
+                    number |= 0xFF00;
+                }
+                
+                instruction->bytes_used += 1;
             }
         } else {
             (u16)get_next_byte(file_content);
+            instruction->bytes_used += 1;
         }
         
         instruction->value = number;
@@ -233,6 +240,8 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
         instruction->dest_register = reg_register;
     } else if (instruction->flags & ACCUMULATOR_ADDRESS) {
         u16 number = get_next_word(file_content);
+        instruction->bytes_used += 2
+            ;
         instruction->value = number;
         if (instruction->d) {
             instruction->dest_register = reg_register;
@@ -314,15 +323,18 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
         case MOD_MEMORY_MODE: {
             if (instruction->rm == 0b110) {
                 displacement.offset = (s16)get_next_word(file_content);
+                instruction->bytes_used += 2;
             }
         } break;
         
         case MOD_MEMORY_MODE_8_BIT_DISPLACEMENT: {
             displacement.offset = (s8)get_next_byte(file_content);
+            instruction->bytes_used += 1;
         } break;
         
         case MOD_MEMORY_MODE_16_BIT_DISPLACEMENT: {
             displacement.offset = (s16)get_next_word(file_content);
+            instruction->bytes_used += 2;
         } break;
         
         case MOD_REGISTER_MODE: {
@@ -335,17 +347,20 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
 
 u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
 {
-    u32 count = 0;
+    u32 instruction_count = 0;
     while (file_content->size_remaining)
     {
-        u8 first_byte = get_next_byte(file_content);
-        
         Instruction instruction = {};
+        
+        u8 first_byte = get_next_byte(file_content);
+        instruction.bytes_used += 1;
+        
         instruction.binary = first_byte;
         
         if (((first_byte >> 2) & 0b111111) == OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER)
         {
             u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
             
             instruction.operation_type = Op_mov;
             instruction.w = first_byte & 1;
@@ -361,14 +376,13 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
             u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
             
             instruction.operation_type = Op_mov;
             instruction.w = first_byte & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | HAS_DATA;
-            
-            // TODO: I need to store the value in the next byte (or word). I did this already, just look it up
         }
         else if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
         {
@@ -387,8 +401,10 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.flags = ACCUMULATOR_ADDRESS;
         }
         else if ((first_byte == OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER) ||
-                 (first_byte == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY)) {
+                 (first_byte == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY))
+        {
             u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
             
             instruction.operation_type = Op_mov;
             instruction.w = 1;
@@ -401,6 +417,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
             u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
             
             instruction.s = (first_byte >> 1) & 1;
             instruction.w = first_byte & 1;
@@ -414,6 +431,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
                  (((first_byte >> 2) & 0b111111) == OPCODE_CMP_REGISTER_OR_MEMORY))
         {
             u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
             
             instruction.d = (first_byte >> 1) & 1;
             instruction.w = first_byte & 1;
@@ -434,24 +452,28 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         }
         else if (is_opcode_jump(first_byte))
         {
+            u8 second_byte = get_next_byte(file_content);
+            instruction.bytes_used += 1;
+            
             instruction.operation_type = Op_jmp;
+            instruction.value = second_byte;
         }
         else
         {
             printf("ERROR: opcode given by first byte [%c%c%c%c%c%c%c%c] not implemented\n", 
                    BYTE_TO_BINARY(first_byte));
             
-            count = 0;
+            instruction_count = 0;
             break;
         }
         
         calculate_displacement(&instruction, file_content);
         set_source_and_dest_registers(&instruction, file_content);
         
-        instructions[count++] = instruction;
+        instructions[instruction_count++] = instruction;
     }
     
-    return count;
+    return instruction_count;
 }
 
 void print_usage(char *program_name)
@@ -478,6 +500,7 @@ void print_final_state(State state)
     printf("\tcs: 0x%04hx (%d)\n", state.registers[9].value, state.registers[9].value);
     printf("\tss: 0x%04hx (%d)\n", state.registers[10].value, state.registers[10].value);
     printf("\tds: 0x%04hx (%d)\n", state.registers[11].value, state.registers[11].value);
+    printf("\tip: 0x%04hx (%d)\n", state.registers[12].value, state.registers[12].value);
     printf("\n");
     
     printf("    Flags: ");
@@ -489,53 +512,57 @@ void print_final_state(State state)
     if (state.overflow_flag)        { printf("O"); }
 }
 
-void simulate_instruction(State *state, Instruction instruction)
+s8 simulate_instruction(State *state, Instruction *instruction)
 {
-    switch (instruction.operation_type)
+    s8 instructions_to_move = 1;
+    
+    state->ip_register.value += instruction->bytes_used;
+    
+    switch (instruction->operation_type)
     {
         case Op_mov: {
-            if (instruction.source_register.type == Register_none)
+            if (instruction->source_register.type == Register_none)
             {
-                if ((instruction.dest_register.bytes >> 3) & 1) {
-                    state->registers[instruction.dest_register.type - 1].value = instruction.value;
+                if ((instruction->dest_register.bytes >> 3) & 1) {
+                    state->registers[instruction->dest_register.type - 1].value = instruction->value;
                 } else {
                     u16 value;
-                    if (instruction.dest_register.bytes & 0b0100) {
+                    if (instruction->dest_register.bytes & 0b0100) {
                         // High bits
-                        state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
-                        value = (instruction.value << 8);
+                        state->registers[instruction->dest_register.type - 1].value &= 0x00FF;
+                        value = (instruction->value << 8);
                     } else {
                         // Lower bits
-                        state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
-                        value = (u8)instruction.value;
+                        state->registers[instruction->dest_register.type - 1].value &= 0xFF00;
+                        value = (u8)instruction->value;
                     }
                     
-                    state->registers[instruction.dest_register.type - 1].value |= value;
+                    state->registers[instruction->dest_register.type - 1].value |= value;
                 }
             }
             else
             {
-                if ((instruction.source_register.bytes >> 3) & 1) {
-                    state->registers[instruction.dest_register.type - 1].value =
-                        state->registers[instruction.source_register.type - 1].value;
+                if ((instruction->source_register.bytes >> 3) & 1) {
+                    state->registers[instruction->dest_register.type - 1].value =
+                        state->registers[instruction->source_register.type - 1].value;
                 } else {
                     u16 value;
-                    if (instruction.source_register.bytes & 0b0100) {
+                    if (instruction->source_register.bytes & 0b0100) {
                         // High bits
-                        value = (state->registers[instruction.source_register.type - 1].value >> 8);
+                        value = (state->registers[instruction->source_register.type - 1].value >> 8);
                     } else {
                         // Lower bits
-                        value = (state->registers[instruction.source_register.type - 1].value & 0xFF);
+                        value = (state->registers[instruction->source_register.type - 1].value & 0xFF);
                     }
                     
-                    if (instruction.dest_register.bytes & 0b0100) {
+                    if (instruction->dest_register.bytes & 0b0100) {
                         // High bits
-                        state->registers[instruction.dest_register.type - 1].value &= 0x00FF;
-                        state->registers[instruction.dest_register.type - 1].value |= (value << 8);
+                        state->registers[instruction->dest_register.type - 1].value &= 0x00FF;
+                        state->registers[instruction->dest_register.type - 1].value |= (value << 8);
                     } else {
                         // Lower bits
-                        state->registers[instruction.dest_register.type - 1].value &= 0xFF00;
-                        state->registers[instruction.dest_register.type - 1].value |= (value & 0xFF);
+                        state->registers[instruction->dest_register.type - 1].value &= 0xFF00;
+                        state->registers[instruction->dest_register.type - 1].value |= (value & 0xFF);
                     }
                 }
             }
@@ -549,17 +576,17 @@ void simulate_instruction(State *state, Instruction instruction)
         } break;
         
         case Op_add: {
-            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 prev_value = state->registers[instruction->dest_register.type - 1].value;
             u16 source_value;
-            if (instruction.source_register.type == Register_none) {
-                source_value = instruction.value;
+            if (instruction->source_register.type == Register_none) {
+                source_value = instruction->value;
             } else {
-                source_value = state->registers[instruction.source_register.type - 1].value;
+                source_value = state->registers[instruction->source_register.type - 1].value;
             }
             
-            state->registers[instruction.dest_register.type - 1].value += source_value;
+            state->registers[instruction->dest_register.type - 1].value += source_value;
             
-            u16 new_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 new_value = state->registers[instruction->dest_register.type - 1].value;
             state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
@@ -571,17 +598,17 @@ void simulate_instruction(State *state, Instruction instruction)
         } break;
         
         case Op_sub: {
-            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 prev_value = state->registers[instruction->dest_register.type - 1].value;
             u16 source_value;
-            if (instruction.source_register.type == Register_none) {
-                source_value = instruction.value;
+            if (instruction->source_register.type == Register_none) {
+                source_value = instruction->value;
             } else {
-                source_value = state->registers[instruction.source_register.type - 1].value;
+                source_value = state->registers[instruction->source_register.type - 1].value;
             }
             
-            state->registers[instruction.dest_register.type - 1].value -= source_value;
+            state->registers[instruction->dest_register.type - 1].value -= source_value;
             
-            u16 new_value = state->registers[instruction.dest_register.type - 1].value;
+            u16 new_value = state->registers[instruction->dest_register.type - 1].value;
             state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
@@ -593,8 +620,8 @@ void simulate_instruction(State *state, Instruction instruction)
         } break;
         
         case Op_cmp: {
-            u16 prev_value = state->registers[instruction.dest_register.type - 1].value;
-            u16 source_value = state->registers[instruction.source_register.type - 1].value;
+            u16 prev_value = state->registers[instruction->dest_register.type - 1].value;
+            u16 source_value = state->registers[instruction->source_register.type - 1].value;
             u16 new_value = prev_value - source_value;
             
             state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
@@ -606,10 +633,34 @@ void simulate_instruction(State *state, Instruction instruction)
             state->auxiliary_carry_flag = ((((prev_value >> 3) & 1) != ((new_value >> 3) & 1)) &&
                                            (((prev_value >> 4) & 1) != ((new_value >> 4) & 1)));
         } break;
+        
+        case Op_jmp: {
+            switch (instruction->binary)
+            {
+                case OPCODE_JNE: {
+                    if (!state->zero_flag) {
+                        state->ip_register.value += (s8)instruction->value;
+                        s8 bytes_remaining = -instruction->bytes_used - (s8)instruction->value;
+                        
+                        instructions_to_move = 0;
+                        
+                        while (bytes_remaining) {
+                            --instruction;
+                            --instructions_to_move;
+                            bytes_remaining -= instruction->bytes_used;
+                        }
+                    }
+                } break;
+            }
+            
+        } break;
+        
     }
+    
+    return instructions_to_move;
 }
 
-void simulate_asm_8086(Instruction *instructions, u32 count, FileContent *file_content)
+void simulate_asm_8086(Instruction *instructions, u32 count)
 {
     // initialize state
     State state = {};
@@ -625,13 +676,15 @@ void simulate_asm_8086(Instruction *instructions, u32 count, FileContent *file_c
     state.registers[9] = {Register_cs, 0};
     state.registers[10] = {Register_ss, 0};
     state.registers[11] = {Register_ds, 0};
+    state.ip_register = {Register_ip, 0};
     
-    for (int i = 0; i < count; ++i) {
-        Instruction instruction = instructions[i];
-        simulate_instruction(&state, instruction);
+    for (int instruction_index = 0; instruction_index < count;) {
+        Instruction *instruction = instructions + instruction_index;
+        s8 instructions_to_move = simulate_instruction(&state, instruction);
+        instruction_index += instructions_to_move;
     }
     
-    print_instructions(instructions, count, file_content);
+    print_instructions(instructions, count);
     
     print_final_state(state);
 }
@@ -685,9 +738,9 @@ int main(int argc, char **argv)
         u32 count = decode_asm_8086(&file_content, instructions);
         
         if (simulate) {
-            simulate_asm_8086(instructions, count, &file_content);
+            simulate_asm_8086(instructions, count);
         } else {
-            print_instructions(instructions, count, &file_content);
+            print_instructions(instructions, count);
         }
     }
     else

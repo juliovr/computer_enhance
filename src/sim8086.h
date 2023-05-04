@@ -136,6 +136,8 @@ enum RegisterType {
     Register_ss,
     Register_ds,
     
+    Register_ip,
+    
     Register_count,
 };
 
@@ -175,6 +177,7 @@ struct Instruction {
     OperationType operation_type;
     RegisterDefinition source_register;
     RegisterDefinition dest_register;
+    u8 bytes_used;
     u8 binary;
     u8 d;
     u8 s;
@@ -195,6 +198,7 @@ struct Register {
 
 struct State {
     Register registers[12];
+    Register ip_register;
     bool carry_flag;
     bool parity_flag;
     bool zero_flag;
