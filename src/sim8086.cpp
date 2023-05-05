@@ -587,7 +587,7 @@ s8 simulate_instruction(State *state, Instruction *instruction)
             state->registers[instruction->dest_register.type - 1].value += source_value;
             
             u16 new_value = state->registers[instruction->dest_register.type - 1].value;
-            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->parity_flag = (count_one_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
             state->overflow_flag = (((prev_value & 0x8000) == (source_value & 0x8000)) && 
@@ -609,7 +609,7 @@ s8 simulate_instruction(State *state, Instruction *instruction)
             state->registers[instruction->dest_register.type - 1].value -= source_value;
             
             u16 new_value = state->registers[instruction->dest_register.type - 1].value;
-            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->parity_flag = (count_one_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
             state->overflow_flag = (((prev_value & 0x8000) != (source_value & 0x8000)) && 
@@ -624,7 +624,7 @@ s8 simulate_instruction(State *state, Instruction *instruction)
             u16 source_value = state->registers[instruction->source_register.type - 1].value;
             u16 new_value = prev_value - source_value;
             
-            state->parity_flag = (count_bits((u8)new_value) % 2 == 0);
+            state->parity_flag = (count_one_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
             state->overflow_flag = (((prev_value & 0x8000) != (source_value & 0x8000)) && 
@@ -635,24 +635,59 @@ s8 simulate_instruction(State *state, Instruction *instruction)
         } break;
         
         case Op_jmp: {
+            bool should_jump = false;
             switch (instruction->binary)
             {
-                case OPCODE_JNE: {
-                    if (!state->zero_flag) {
-                        state->ip_register.value += (s8)instruction->value;
-                        s8 bytes_remaining = -instruction->bytes_used - (s8)instruction->value;
-                        
-                        instructions_to_move = 0;
-                        
-                        while (bytes_remaining) {
-                            --instruction;
-                            --instructions_to_move;
-                            bytes_remaining -= instruction->bytes_used;
-                        }
-                    }
-                } break;
+                case OPCODE_JE:     { should_jump = state->zero_flag; } break;
+                case OPCODE_JL:     { should_jump = false; } break;
+                case OPCODE_JLE:    { should_jump = false; } break;
+                case OPCODE_JB:     { should_jump = state->carry_flag; } break;
+                case OPCODE_JBE:    { should_jump = false; } break;
+                case OPCODE_JP:     { should_jump = state->parity_flag; } break;
+                case OPCODE_JO:     { should_jump = false; } break;
+                case OPCODE_JS:     { should_jump = false; } break;
+                case OPCODE_JNE:    { should_jump = !state->zero_flag; } break;
+                case OPCODE_JNL:    { should_jump = false; } break;
+                case OPCODE_JNLE:   { should_jump = false; } break;
+                case OPCODE_JNB:    { should_jump = false; } break;
+                case OPCODE_JNBE:   { should_jump = false; } break;
+                case OPCODE_JNP:    { should_jump = false; } break;
+                case OPCODE_JNO:    { should_jump = false; } break;
+                case OPCODE_JNS:    { should_jump = false; } break;
+                case OPCODE_LOOP:   { should_jump = false; } break;
+                case OPCODE_LOOPZ:  { should_jump = false; } break;
+                case OPCODE_LOOPNZ: { should_jump = !state->zero_flag; } break;
+                case OPCODE_JCXZ:   { should_jump = false; } break;
             }
             
+            if (should_jump) {
+                if (instruction->binary == OPCODE_LOOPNZ) {
+                    if (--state->registers[2].value == 0) {
+                        break;
+                    }
+                }
+                
+                state->ip_register.value += (s8)instruction->value;
+                instructions_to_move = 0;
+                
+                if ((s8)instruction->value < 0) {
+                    s8 bytes_remaining = -instruction->bytes_used - (s8)instruction->value;
+                    
+                    while (bytes_remaining) {
+                        --instruction;
+                        --instructions_to_move;
+                        bytes_remaining -= instruction->bytes_used;
+                    }
+                } else {
+                    s8 bytes_remaining = instruction->bytes_used + (s8)instruction->value;
+                    
+                    while (bytes_remaining) {
+                        bytes_remaining -= instruction->bytes_used;
+                        ++instruction;
+                        ++instructions_to_move;
+                    }
+                }
+            }
         } break;
         
     }

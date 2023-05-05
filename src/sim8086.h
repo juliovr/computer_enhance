@@ -229,7 +229,7 @@ inline RegisterDefinition get_segment_register_definition(u8 sr)
     return segment_register;
 }
 
-inline u8 count_bits(int n)
+inline u8 count_one_bits(u8 n)
 {
     u8 count = 0;
     while (n) {
