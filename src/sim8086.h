@@ -18,6 +18,9 @@ typedef long long s64;
 #define assert(expression) if (!(expression)) {*((int *)0) = 0;}
 #define array_count(array) (sizeof(array) / sizeof((array)[0]))
 
+#define KILOBYTES(value) ((value) * 1024LL)
+#define MEGABYTES(value) (KILOBYTES(value) * 1024LL)
+
 #define BYTE_TO_BINARY(byte) \
 (((byte) & (1 << 7)) ? '1' : '0'), \
 (((byte) & (1 << 6)) ? '1' : '0'), \
@@ -171,6 +174,7 @@ struct DisplacementAddress {
     RegisterDefinition first_displacement;
     RegisterDefinition second_displacement;
     s16 offset;
+    bool has_displacement;
 };
 
 struct Instruction {
@@ -199,6 +203,7 @@ struct Register {
 struct State {
     Register registers[12];
     Register ip_register;
+    u8 *memory;
     bool carry_flag;
     bool parity_flag;
     bool zero_flag;

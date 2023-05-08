@@ -222,7 +222,7 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
                 instruction->bytes_used += 1;
             }
         } else {
-            (u16)get_next_byte(file_content);
+            number = (u16)get_next_byte(file_content);
             instruction->bytes_used += 1;
         }
         
@@ -518,13 +518,34 @@ s8 simulate_instruction(State *state, Instruction *instruction)
     
     state->ip_register.value += instruction->bytes_used;
     
+    // Calculate memory displacement
+    s16 displacement = instruction->displacement_address.offset;
+    if (instruction->displacement_address.first_displacement.type != Register_none) {
+        displacement += state->registers[instruction->displacement_address.first_displacement.type - 1].value;
+    }
+    
+    if (instruction->displacement_address.second_displacement.type != Register_none) {
+        displacement += state->registers[instruction->displacement_address.second_displacement.type - 1].value;
+    }
+    
+    
     switch (instruction->operation_type)
     {
         case Op_mov: {
             if (instruction->source_register.type == Register_none)
             {
-                if ((instruction->dest_register.bytes >> 3) & 1) {
-                    state->registers[instruction->dest_register.type - 1].value = instruction->value;
+                if (instruction->dest_register.type == Register_none) {
+                    // To memory
+                    *(state->memory + displacement) = (instruction->value & 0xFF);
+                    if (instruction->w) {
+                        *(state->memory + displacement + 1) = (instruction->value >> 8);
+                    }
+                } else if ((instruction->dest_register.bytes >> 3) & 1) {
+                    if (displacement) {
+                        state->registers[instruction->dest_register.type - 1].value = *((u16 *)(state->memory + displacement));
+                    } else {
+                        state->registers[instruction->dest_register.type - 1].value = instruction->value;
+                    }
                 } else {
                     u16 value;
                     if (instruction->dest_register.bytes & 0b0100) {
@@ -542,17 +563,28 @@ s8 simulate_instruction(State *state, Instruction *instruction)
             }
             else
             {
-                if ((instruction->source_register.bytes >> 3) & 1) {
-                    state->registers[instruction->dest_register.type - 1].value =
-                        state->registers[instruction->source_register.type - 1].value;
+                u16 source_register_value = state->registers[instruction->source_register.type - 1].value;
+                if (instruction->dest_register.type == Register_none) {
+                    // To memory
+                    *(state->memory + displacement) = (source_register_value & 0xFF);
+                    if (instruction->w) {
+                        *(state->memory + displacement + 1) = (source_register_value >> 8);
+                    }
+                } else if ((instruction->source_register.bytes >> 3) & 1) {
+                    if (displacement) {
+                        state->registers[instruction->dest_register.type - 1].value = *((u16 *)(state->memory + displacement));
+                    } else {
+                        state->registers[instruction->dest_register.type - 1].value = source_register_value;
+                    }
+                    
                 } else {
                     u16 value;
                     if (instruction->source_register.bytes & 0b0100) {
                         // High bits
-                        value = (state->registers[instruction->source_register.type - 1].value >> 8);
+                        value = (source_register_value >> 8);
                     } else {
                         // Lower bits
-                        value = (state->registers[instruction->source_register.type - 1].value & 0xFF);
+                        value = (source_register_value & 0xFF);
                     }
                     
                     if (instruction->dest_register.bytes & 0b0100) {
@@ -576,6 +608,7 @@ s8 simulate_instruction(State *state, Instruction *instruction)
         } break;
         
         case Op_add: {
+            u16 new_value;
             u16 prev_value = state->registers[instruction->dest_register.type - 1].value;
             u16 source_value;
             if (instruction->source_register.type == Register_none) {
@@ -584,9 +617,20 @@ s8 simulate_instruction(State *state, Instruction *instruction)
                 source_value = state->registers[instruction->source_register.type - 1].value;
             }
             
-            state->registers[instruction->dest_register.type - 1].value += source_value;
             
-            u16 new_value = state->registers[instruction->dest_register.type - 1].value;
+            if (displacement) {
+                if (instruction->dest_register.type == Register_none) {
+                    *((u16 *)(state->memory + displacement)) += source_value;
+                    new_value = *((u16 *)(state->memory + displacement));
+                } else {
+                    state->registers[instruction->dest_register.type - 1].value += *((u16 *)(state->memory + displacement));
+                    new_value = state->registers[instruction->dest_register.type - 1].value;
+                }
+            } else {
+                state->registers[instruction->dest_register.type - 1].value += source_value;
+                new_value = state->registers[instruction->dest_register.type - 1].value;
+            }
+            
             state->parity_flag = (count_one_bits((u8)new_value) % 2 == 0);
             state->zero_flag = (new_value == 0);
             state->sign_flag = ((new_value >> 15) & 1);
@@ -621,7 +665,13 @@ s8 simulate_instruction(State *state, Instruction *instruction)
         
         case Op_cmp: {
             u16 prev_value = state->registers[instruction->dest_register.type - 1].value;
-            u16 source_value = state->registers[instruction->source_register.type - 1].value;
+            u16 source_value;
+            if (instruction->source_register.type == Register_none) {
+                source_value = instruction->value;
+            } else {
+                source_value = state->registers[instruction->source_register.type - 1].value;
+            }
+            
             u16 new_value = prev_value - source_value;
             
             state->parity_flag = (count_one_bits((u8)new_value) % 2 == 0);
@@ -654,7 +704,7 @@ s8 simulate_instruction(State *state, Instruction *instruction)
                 case OPCODE_JNP:    { should_jump = false; } break;
                 case OPCODE_JNO:    { should_jump = false; } break;
                 case OPCODE_JNS:    { should_jump = false; } break;
-                case OPCODE_LOOP:   { should_jump = false; } break;
+                case OPCODE_LOOP:   { should_jump = ((s16)--state->registers[2].value > 0); } break;
                 case OPCODE_LOOPZ:  { should_jump = false; } break;
                 case OPCODE_LOOPNZ: { should_jump = !state->zero_flag; } break;
                 case OPCODE_JCXZ:   { should_jump = false; } break;
@@ -712,6 +762,7 @@ void simulate_asm_8086(Instruction *instructions, u32 count)
     state.registers[10] = {Register_ss, 0};
     state.registers[11] = {Register_ds, 0};
     state.ip_register = {Register_ip, 0};
+    state.memory = (u8 *)malloc(MEGABYTES(1));
     
     for (int instruction_index = 0; instruction_index < count;) {
         Instruction *instruction = instructions + instruction_index;
