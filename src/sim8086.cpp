@@ -745,6 +745,17 @@ s8 simulate_instruction(State *state, Instruction *instruction)
     return instructions_to_move;
 }
 
+void dump_memory(u8 *memory, u32 size)
+{
+    FILE *file = fopen("memory_dump.data", "wb");
+    if (file)
+    {
+        fwrite(memory, 1, size, file);
+        
+        fclose(file);
+    }
+}
+
 void simulate_asm_8086(Instruction *instructions, u32 count)
 {
     // initialize state
@@ -762,7 +773,8 @@ void simulate_asm_8086(Instruction *instructions, u32 count)
     state.registers[10] = {Register_ss, 0};
     state.registers[11] = {Register_ds, 0};
     state.ip_register = {Register_ip, 0};
-    state.memory = (u8 *)malloc(MEGABYTES(1));
+    state.memory_size = MEGABYTES(1);
+    state.memory = (u8 *)malloc(state.memory_size);
     
     for (int instruction_index = 0; instruction_index < count;) {
         Instruction *instruction = instructions + instruction_index;
@@ -773,6 +785,8 @@ void simulate_asm_8086(Instruction *instructions, u32 count)
     print_instructions(instructions, count);
     
     print_final_state(state);
+    
+    dump_memory(state.memory, state.memory_size);
 }
 
 int main(int argc, char **argv)
@@ -815,8 +829,8 @@ int main(int argc, char **argv)
         fclose(file);
         
         FileContent file_content = {};
-        file_content.memory         = memory;
-        file_content.total_size     = size;
+        file_content.memory = memory;
+        file_content.total_size = size;
         file_content.size_remaining = size;
         
         

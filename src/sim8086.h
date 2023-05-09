@@ -203,6 +203,7 @@ struct Register {
 struct State {
     Register registers[12];
     Register ip_register;
+    u32 memory_size;
     u8 *memory;
     bool carry_flag;
     bool parity_flag;
