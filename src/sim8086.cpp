@@ -100,10 +100,8 @@ char * get_opcode_name(OperationType operation_type, u8 binary)
     return operation;
 }
 
-void print_instruction(Instruction *instruction_)
+void print_instruction(Instruction instruction)
 {
-    Instruction instruction = *instruction_;
-    
     printf(get_opcode_name(instruction.operation_type, instruction.binary));
     
     if (instruction.operation_type == Op_jmp) {
@@ -165,10 +163,25 @@ void print_instructions(Instruction *instructions, u32 count)
 {
     if (count)
     {
+        u32 total_clocks = 0;
         printf("bits 16\n");
         for (int i = 0; i < count; ++i) {
             Instruction instruction = instructions[i];
-            print_instruction(&instruction);
+            print_instruction(instruction);
+            
+            
+            u8 instruction_clocks = instruction.clocks;
+            u8 ea_clocks = instruction.displacement_address.clocks;
+            u8 total_instruction_clocks = instruction_clocks + ea_clocks;
+            
+            total_clocks += total_instruction_clocks;
+            
+            printf(" ; Clocks: +%d = %d", total_instruction_clocks, total_clocks);
+            
+            if (ea_clocks) {
+                printf(" (%d + %dea)", instruction_clocks, ea_clocks);
+            }
+            
             
             printf("\n");
         }
@@ -240,8 +253,7 @@ void set_source_and_dest_registers(Instruction *instruction, FileContent *file_c
         instruction->dest_register = reg_register;
     } else if (instruction->flags & ACCUMULATOR_ADDRESS) {
         u16 number = get_next_word(file_content);
-        instruction->bytes_used += 2
-            ;
+        instruction->bytes_used += 2;
         instruction->value = number;
         if (instruction->d) {
             instruction->dest_register = reg_register;
@@ -281,39 +293,47 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
             case 0b000: {
                 displacement.first_displacement = registers_definitions[3][1];
                 displacement.second_displacement = registers_definitions[6][1];
+                displacement.clocks += 7;
             } break;
             
             case 0b001: {
                 displacement.first_displacement = registers_definitions[3][1];
                 displacement.second_displacement = registers_definitions[7][1];
+                displacement.clocks += 8;
             } break;
             
             case 0b010: {
                 displacement.first_displacement = registers_definitions[5][1];
                 displacement.second_displacement = registers_definitions[6][1];
+                displacement.clocks += 8;
             } break;
             
             case 0b011: {
                 displacement.first_displacement = registers_definitions[5][1];
                 displacement.second_displacement = registers_definitions[7][1];
+                displacement.clocks += 7;
             } break;
             
             case 0b100: {
                 displacement.first_displacement = registers_definitions[6][1];
+                displacement.clocks += 5;
             } break;
             
             case 0b101: {
                 displacement.first_displacement = registers_definitions[7][1];
+                displacement.clocks += 5;
             } break;
             
             case 0b110: {
                 if (instruction->mod != MOD_MEMORY_MODE) {
                     displacement.first_displacement = registers_definitions[5][1];
+                    displacement.clocks += 5;
                 }
             } break;
             
             case 0b111: {
                 displacement.first_displacement = registers_definitions[3][1];
+                displacement.clocks += 5;
             } break;
         }
     }
@@ -324,17 +344,20 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
             if (instruction->rm == 0b110) {
                 displacement.offset = (s16)get_next_word(file_content);
                 instruction->bytes_used += 2;
+                displacement.clocks += 6;
             }
         } break;
         
         case MOD_MEMORY_MODE_8_BIT_DISPLACEMENT: {
             displacement.offset = (s8)get_next_byte(file_content);
             instruction->bytes_used += 1;
+            displacement.clocks += 4;
         } break;
         
         case MOD_MEMORY_MODE_16_BIT_DISPLACEMENT: {
             displacement.offset = (s16)get_next_word(file_content);
             instruction->bytes_used += 2;
+            displacement.clocks += 4;
         } break;
         
         case MOD_REGISTER_MODE: {
@@ -343,6 +366,118 @@ void calculate_displacement(Instruction *instruction, FileContent *file_content)
     }
     
     instruction->displacement_address = displacement;
+}
+
+void calculate_instruction_clocks(Instruction *instruction)
+{
+    if (((instruction->binary >> 2) & 0b111111) == OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER)
+    {
+        if (instruction->dest_register.type != Register_none &&
+            instruction->source_register.type != Register_none) {
+            instruction->clocks += 2;
+        } else if (instruction->dest_register.type != Register_none &&
+                   instruction->source_register.type == Register_none) {
+            instruction->clocks += 8;
+        } else if (instruction->dest_register.type == Register_none &&
+                   instruction->source_register.type != Register_none) {
+            instruction->clocks += 9;
+        }
+    }
+    else if (((instruction->binary >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
+    {
+        if (instruction->dest_register.type == Register_none) {
+            instruction->clocks += 10;
+        } else {
+            instruction->clocks += 4;
+        }
+    }
+    else if (((instruction->binary >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
+    {
+        instruction->clocks += 4;
+    }
+    else if (((instruction->binary >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR ||
+             ((instruction->binary >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
+    {
+        instruction->clocks += 10;
+    }
+    else if ((instruction->binary == OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER) ||
+             (instruction->binary == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY))
+    {
+        if (instruction->dest_register.type != Register_none &&
+            instruction->source_register.type != Register_none) {
+            instruction->clocks += 2;
+        } else if (instruction->dest_register.type != Register_none &&
+                   instruction->source_register.type == Register_none) {
+            instruction->clocks += 8;
+        } else if (instruction->dest_register.type == Register_none &&
+                   instruction->source_register.type != Register_none) {
+            instruction->clocks += 9;
+        }
+    }
+    else if (((instruction->binary >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
+    {
+        if (instruction->dest_register.type != Register_none) {
+            instruction->clocks += 4;
+        } else {
+            if (instruction->operation_type == Op_add ||
+                instruction->operation_type == Op_sub) {
+                instruction->clocks += 17;
+            } else if (instruction->operation_type == Op_cmp) {
+                instruction->clocks += 10;
+            }
+        }
+    }
+    else if ((((instruction->binary >> 2) & 0b111111) == OPCODE_ADD_REGISTER_OR_MEMORY) ||
+             (((instruction->binary >> 2) & 0b111111) == OPCODE_SUB_REGISTER_OR_MEMORY) ||
+             (((instruction->binary >> 2) & 0b111111) == OPCODE_CMP_REGISTER_OR_MEMORY))
+    {
+        if (instruction->dest_register.type != Register_none &&
+            instruction->source_register.type != Register_none) {
+            instruction->clocks += 3;
+        } else if (instruction->dest_register.type != Register_none &&
+                   instruction->source_register.type == Register_none) {
+            instruction->clocks += 9;
+        } else if (instruction->dest_register.type == Register_none &&
+                   instruction->source_register.type != Register_none) {
+            if (instruction->operation_type == Op_cmp) {
+                instruction->clocks += 9;
+            } else {
+                instruction->clocks += 16;
+            }
+        }
+    }
+    else if ((((instruction->binary >> 1) & 0b1111111) == OPCODE_ADD_IMMEDIATE_TO_ACCUMULATOR) ||
+             (((instruction->binary >> 1) & 0b1111111) == OPCODE_SUB_IMMEDIATE_FROM_ACCUMULATOR) ||
+             (((instruction->binary >> 1) & 0b1111111) == OPCODE_CMP_IMMEDIATE_WITH_ACCUMULATOR))
+    {
+        instruction->clocks += 4;
+    }
+    else if (is_opcode_jump(instruction->binary))
+    {
+        switch (instruction->binary)
+        {
+            case OPCODE_JE:     { instruction->clocks += 16; } break;
+            case OPCODE_JL:     {  } break;
+            case OPCODE_JLE:    {  } break;
+            case OPCODE_JB:     { instruction->clocks += 16; } break;
+            case OPCODE_JBE:    {  } break;
+            case OPCODE_JP:     { instruction->clocks += 16; } break;
+            case OPCODE_JO:     {  } break;
+            case OPCODE_JS:     {  } break;
+            case OPCODE_JNE:    { instruction->clocks += 16; } break;
+            case OPCODE_JNL:    {  } break;
+            case OPCODE_JNLE:   {  } break;
+            case OPCODE_JNB:    {  } break;
+            case OPCODE_JNBE:   {  } break;
+            case OPCODE_JNP:    {  } break;
+            case OPCODE_JNO:    {  } break;
+            case OPCODE_JNS:    {  } break;
+            case OPCODE_LOOP:   { instruction->clocks += 17; } break;
+            case OPCODE_LOOPZ:  {  } break;
+            case OPCODE_LOOPNZ: { instruction->clocks += 19; } break;
+            case OPCODE_JCXZ:   {  } break;
+        }
+    }
 }
 
 u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
@@ -357,14 +492,14 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         
         instruction.binary = first_byte;
         
-        if (((first_byte >> 2) & 0b111111) == OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER)
+        if (((instruction.binary >> 2) & 0b111111) == OPCODE_MOV_REGISTER_MEMORY_TO_OR_FROM_REGISTER)
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
             
             instruction.operation_type = Op_mov;
-            instruction.w = first_byte & 1;
-            instruction.d = first_byte & 2;
+            instruction.w = instruction.binary & 1;
+            instruction.d = instruction.binary & 2;
             instruction.mod = ((second_byte >> 6) & 0b11);
             instruction.rm = second_byte & 0b111;
             instruction.reg = ((second_byte >> 3) & 0b111);
@@ -373,35 +508,35 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
                 instruction.flags |= DISPLACEMENT;
             }
         }
-        else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
+        else if (((instruction.binary >> 1) & 0b1111111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
             
             instruction.operation_type = Op_mov;
-            instruction.w = first_byte & 1;
+            instruction.w = instruction.binary & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | HAS_DATA;
         }
-        else if (((first_byte >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
+        else if (((instruction.binary >> 4) & 0b1111) == OPCODE_MOV_IMMEDIATE_TO_REGISTER)
         {
             instruction.operation_type = Op_mov;
-            instruction.w = (first_byte >> 3) & 1;
-            instruction.reg = first_byte & 0b111;
+            instruction.w = (instruction.binary >> 3) & 1;
+            instruction.reg = instruction.binary & 0b111;
             instruction.flags = IMMEDIATE | HAS_DATA;
         }
-        else if (((first_byte >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR ||
-                 ((first_byte >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
+        else if (((instruction.binary >> 1) & 0b1111111) == OPCODE_MOV_MEMORY_TO_ACCUMULATOR ||
+                 ((instruction.binary >> 1) & 0b1111111) == OPCODE_MOV_ACCUMULATOR_TO_MEMORY)
         {
             instruction.operation_type = Op_mov;
-            instruction.w = first_byte & 1;
+            instruction.w = instruction.binary & 1;
             instruction.reg = 0b000;
-            instruction.d = ((first_byte >> 1) & 1) ^ 1;
+            instruction.d = ((instruction.binary >> 1) & 1) ^ 1;
             instruction.flags = ACCUMULATOR_ADDRESS;
         }
-        else if ((first_byte == OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER) ||
-                 (first_byte == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY))
+        else if ((instruction.binary == OPCODE_MOV_REGISTER_OR_MEMORY_TO_SEGMENT_REGISTER) ||
+                 (instruction.binary == OPCODE_MOV_SEGMENT_REGISTER_TO_REGISTER_OR_MEMORY))
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
@@ -411,46 +546,46 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.sr = (second_byte >> 3) & 0b111;
             instruction.rm = second_byte & 0b111;
-            instruction.d = ((first_byte >> 1) & 1) ^ 1;
+            instruction.d = ((instruction.binary >> 1) & 1) ^ 1;
             instruction.flags = SEGMENT;
         }
-        else if (((first_byte >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
+        else if (((instruction.binary >> 2) & 0b111111) == OPCODE_ARITHMETIC_IMMEDIATE_TO_REGISTER_OR_MEMORY)
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
             
-            instruction.s = (first_byte >> 1) & 1;
-            instruction.w = first_byte & 1;
+            instruction.s = (instruction.binary >> 1) & 1;
+            instruction.w = instruction.binary & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.rm = second_byte & 0b111;
             instruction.operation_type = arithmetic_operations[(second_byte >> 3) & 0b111];
             instruction.flags = WORD_BYTE_TEXT_REQUIRED | DISPLACEMENT | HAS_DATA;
         }
-        else if ((((first_byte >> 2) & 0b111111) == OPCODE_ADD_REGISTER_OR_MEMORY) ||
-                 (((first_byte >> 2) & 0b111111) == OPCODE_SUB_REGISTER_OR_MEMORY) ||
-                 (((first_byte >> 2) & 0b111111) == OPCODE_CMP_REGISTER_OR_MEMORY))
+        else if ((((instruction.binary >> 2) & 0b111111) == OPCODE_ADD_REGISTER_OR_MEMORY) ||
+                 (((instruction.binary >> 2) & 0b111111) == OPCODE_SUB_REGISTER_OR_MEMORY) ||
+                 (((instruction.binary >> 2) & 0b111111) == OPCODE_CMP_REGISTER_OR_MEMORY))
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
             
-            instruction.d = (first_byte >> 1) & 1;
-            instruction.w = first_byte & 1;
+            instruction.d = (instruction.binary >> 1) & 1;
+            instruction.w = instruction.binary & 1;
             instruction.mod = (second_byte >> 6) & 0b11;
             instruction.reg = (second_byte >> 3) & 0b111;
             instruction.rm = second_byte & 0b111;
-            instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
+            instruction.operation_type = arithmetic_operations[(instruction.binary >> 3) & 0b111];
             instruction.flags = REG_SOURCE_DEST | DISPLACEMENT;
         }
-        else if ((((first_byte >> 1) & 0b1111111) == OPCODE_ADD_IMMEDIATE_TO_ACCUMULATOR) ||
-                 (((first_byte >> 1) & 0b1111111) == OPCODE_SUB_IMMEDIATE_FROM_ACCUMULATOR) ||
-                 (((first_byte >> 1) & 0b1111111) == OPCODE_CMP_IMMEDIATE_WITH_ACCUMULATOR))
+        else if ((((instruction.binary >> 1) & 0b1111111) == OPCODE_ADD_IMMEDIATE_TO_ACCUMULATOR) ||
+                 (((instruction.binary >> 1) & 0b1111111) == OPCODE_SUB_IMMEDIATE_FROM_ACCUMULATOR) ||
+                 (((instruction.binary >> 1) & 0b1111111) == OPCODE_CMP_IMMEDIATE_WITH_ACCUMULATOR))
         {
-            instruction.w = first_byte & 1;
+            instruction.w = instruction.binary & 1;
             instruction.reg = 0b000; // ax || al register
-            instruction.operation_type = arithmetic_operations[(first_byte >> 3) & 0b111];
+            instruction.operation_type = arithmetic_operations[(instruction.binary >> 3) & 0b111];
             instruction.flags = IMMEDIATE_ACCUMULATOR | HAS_DATA;
         }
-        else if (is_opcode_jump(first_byte))
+        else if (is_opcode_jump(instruction.binary))
         {
             u8 second_byte = get_next_byte(file_content);
             instruction.bytes_used += 1;
@@ -460,8 +595,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         }
         else
         {
-            printf("ERROR: opcode given by first byte [%c%c%c%c%c%c%c%c] not implemented\n", 
-                   BYTE_TO_BINARY(first_byte));
+            printf("ERROR: opcode given by first byte [%c%c%c%c%c%c%c%c] not implemented\n", BYTE_TO_BINARY(instruction.binary));
             
             instruction_count = 0;
             break;
@@ -469,6 +603,7 @@ u32 decode_asm_8086(FileContent *file_content, Instruction *instructions)
         
         calculate_displacement(&instruction, file_content);
         set_source_and_dest_registers(&instruction, file_content);
+        calculate_instruction_clocks(&instruction);
         
         instructions[instruction_count++] = instruction;
     }
@@ -758,7 +893,6 @@ void dump_memory(u8 *memory, u32 size)
 
 void simulate_asm_8086(Instruction *instructions, u32 count)
 {
-    // initialize state
     State state = {};
     state.registers[0] = {Register_a, 0};
     state.registers[1] = {Register_b, 0};

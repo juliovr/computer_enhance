@@ -174,7 +174,7 @@ struct DisplacementAddress {
     RegisterDefinition first_displacement;
     RegisterDefinition second_displacement;
     s16 offset;
-    bool has_displacement;
+    u8 clocks;
 };
 
 struct Instruction {
@@ -193,6 +193,7 @@ struct Instruction {
     u8 flags;
     u16 value;
     DisplacementAddress displacement_address;
+    u8 clocks;
 };
 
 struct Register {
