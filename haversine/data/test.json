@@ -1,0 +1,10 @@
+{
+    "pair": {
+		"x0": "1",
+		"y1": "2",
+		"test_true": true,
+		"test_false": false,
+		"test_null": null,
+		"test_number": 1
+	}
+}
