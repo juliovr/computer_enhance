@@ -230,6 +230,8 @@ Token get_token(Tokenizer *tokenizer, bool advance_tokenizer)
     if (!advance_tokenizer) {
         tokenizer->at = original_at;
     }
+
+    add_token(tokenizer, &token);
     
     return token;
 }
@@ -244,8 +246,8 @@ inline bool require_token(Tokenizer *tokenizer, Token_type expected_type)
 
 void parse_member(Tokenizer *tokenizer)
 {
-    Token string_token = get_token(tokenizer);
-    if (string_token.type != TOKEN_TYPE_STRING) {
+    Token token = get_token(tokenizer);
+    if (token.type != TOKEN_TYPE_STRING) {
         fprintf(stderr, "Missing '\"' at line %d\n", tokenizer->line);
         return;
     }
@@ -351,8 +353,8 @@ int main(int argc, char** argv)
     generate_json(n);
 #endif
     
-    //char *filename = "haversine.json";
-    char *filename = "data/test.json";
+//    char *filename = "haversine.json";
+    char *filename = "test.json";
     char *json_content = read_entire_file(filename);
     if (json_content) {
         printf("Length = %zd\n", strlen(json_content));

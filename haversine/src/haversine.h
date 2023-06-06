@@ -27,9 +27,14 @@ typedef double f64;
 // Lexer
 //
 
+struct Token;
+
 struct Tokenizer {
     char *at;
     u32 line;
+
+    Token *first;
+    Token *last;
 };
 
 enum Token_type {
@@ -111,5 +116,21 @@ void parse_object(Tokenizer *tokenizer);
 void parse_array(Tokenizer *tokenizer);
 void parse_members(Tokenizer *tokenizer);
 void parse_member(Tokenizer *tokenizer);
+
+inline void add_token(Tokenizer *tokenizer, Token *token)
+{
+    Token *new_token = (Token *)malloc(sizeof(Token));
+    *new_token = *token;
+    
+    if (!tokenizer->first) {
+        tokenizer->first = new_token;
+        tokenizer->last = new_token;
+        
+        tokenizer->first->next = tokenizer->last;
+    } else {
+        tokenizer->last->next = new_token;
+        tokenizer->last = new_token;
+    }
+}
 
 #endif //HAVERSINE_H
