@@ -352,7 +352,7 @@ int main(int argc, char** argv)
 #endif
     
     //char *filename = "haversine.json";
-    char *filename = "test.json";
+    char *filename = "data/test.json";
     char *json_content = read_entire_file(filename);
     if (json_content) {
         printf("Length = %zd\n", strlen(json_content));
