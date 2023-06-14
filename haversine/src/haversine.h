@@ -10,7 +10,7 @@ typedef int16_t s16;
 typedef int32_t s32;
 typedef int64_t s64;
 
-typedef uint8_t  u8;
+typedef char  u8;
 typedef uint16_t u16;
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -33,12 +33,31 @@ struct Tokenizer {
     char *at;
     u32 line;
 
+    bool parsing;
+
     Token *first;
     Token *last;
 };
 
+#define FOREACH_TOKEN_TYPE(GENERATION_TYPE)     \
+    GENERATION_TYPE(TOKEN_TYPE_UNKNOWN)         \
+    GENERATION_TYPE(TOKEN_TYPE_OPEN_BRACKET)    \
+    GENERATION_TYPE(TOKEN_TYPE_CLOSE_BRACKET)   \
+    GENERATION_TYPE(TOKEN_TYPE_OPEN_BRACE)      \
+    GENERATION_TYPE(TOKEN_TYPE_CLOSE_BRACE)     \
+    GENERATION_TYPE(TOKEN_TYPE_COLON)           \
+    GENERATION_TYPE(TOKEN_TYPE_COMMA)           \
+    GENERATION_TYPE(TOKEN_TYPE_STRING)          \
+    GENERATION_TYPE(TOKEN_TYPE_NUMBER)          \
+    GENERATION_TYPE(TOKEN_TYPE_BOOLEAN)         \
+    GENERATION_TYPE(TOKEN_TYPE_NULL)            \
+    GENERATION_TYPE(TOKEN_TYPE_END_OF_STREAM)
+
+#define GENERATE_ENUM(VALUE) VALUE,
+#define GENERATE_STRING(VALUE) #VALUE,
+
 enum Token_type {
-    TOKEN_TYPE_UNKNOWN,
+/*    TOKEN_TYPE_UNKNOWN,
     
     TOKEN_TYPE_OPEN_BRACKET,
     TOKEN_TYPE_CLOSE_BRACKET,
@@ -53,13 +72,24 @@ enum Token_type {
     TOKEN_TYPE_NULL,
     
     TOKEN_TYPE_END_OF_STREAM,
+*/
+    FOREACH_TOKEN_TYPE(GENERATE_ENUM)
+};
+
+const static char * token_types[] {
+    FOREACH_TOKEN_TYPE(GENERATE_STRING)
+};
+
+
+struct Buffer {
+    int size;
+    u8 *data;
 };
 
 struct Token {
     Token_type type;
-    
-    u32 text_length;
-    char *text;
+
+    Buffer buffer;
     
     Token *next;
 };
@@ -78,44 +108,18 @@ enum Json_value_type {
     JSON_VALUE_TYPE_NULL,
 };
 
-// TODO: here access the distinct value types: object, array, string, number, boolean and null
 
-struct Json_object;
-struct Json_object_member;
-struct Json_value;
+struct Json_element {
+    Buffer name;
+    Buffer value;
 
-
-struct Json_object_member {
-    char *name;
-    Json_value *value;
+    Json_element *first;
+    Json_element *next_sibling;
 };
 
-struct Json_object {
-    u32 member_count;
-    Json_object_member *members;
-};
-
-struct Json_value {
-    Json_value_type type;
-    union {
-        Json_object *object;
-        void *array;
-        void *string;
-        void *number;
-        void *boolean;
-        void *null;
-    };
-};
-
-Token get_token(Tokenizer *tokenizer, bool advance_tokenizer = true);
-bool require_token(Tokenizer *tokenizer, Token_type expected_type);
-void parse_json(char *json_content);
-void parse_elements(Tokenizer *tokenizer);
-bool parse_element(Tokenizer *tokenizer);
-void parse_object(Tokenizer *tokenizer);
-void parse_array(Tokenizer *tokenizer);
-void parse_members(Tokenizer *tokenizer);
-void parse_member(Tokenizer *tokenizer);
+Json_element * parse_element(Tokenizer *tokenizer, Buffer name, Token token_value);
+Json_element * parse_object(Tokenizer *tokenizer);
+Json_element * parse_array(Tokenizer *tokenizer);
 
 inline void add_token(Tokenizer *tokenizer, Token *token)
 {
@@ -131,6 +135,20 @@ inline void add_token(Tokenizer *tokenizer, Token *token)
         tokenizer->last->next = new_token;
         tokenizer->last = new_token;
     }
+}
+
+inline Json_element * get(Json_element *json, char *name)
+{
+    Json_element *element = json->first;
+    while (element) {
+        if (strncmp(element->name.data, name, element->name.size) == 0) {
+            break;
+        }
+
+        element = element->next_sibling;
+    }
+
+    return element;
 }
 
 #endif //HAVERSINE_H

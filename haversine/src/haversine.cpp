@@ -84,7 +84,6 @@ inline bool is_whitespace(char c)
 {
     bool result = (c == ' ' ||
                    c == '\t' ||
-                   c == '\f' ||
                    is_end_of_line(c));
     
     return result;
@@ -115,15 +114,15 @@ inline bool is_number(char c)
     return result;
 }
 
-Token get_token(Tokenizer *tokenizer, bool advance_tokenizer)
+Token get_token(Tokenizer *tokenizer, bool advance_tokenizer = true)
 {
     eat_all_whitespaces(tokenizer);
     
     char *original_at = tokenizer->at;
     
     Token token = {};
-    token.text_length = 1;
-    token.text = tokenizer->at;
+    token.buffer.size = 1;
+    token.buffer.data = tokenizer->at;
     
     char c = tokenizer->at[0];
     ++tokenizer->at;
@@ -136,27 +135,78 @@ Token get_token(Tokenizer *tokenizer, bool advance_tokenizer)
         case ']': { token.type = TOKEN_TYPE_CLOSE_BRACKET; } break;
         case ':': { token.type = TOKEN_TYPE_COLON; } break;
         case ',': { token.type = TOKEN_TYPE_COMMA; } break;
+        case '\0': { token.type = TOKEN_TYPE_END_OF_STREAM; } break;
         
         case '"': {
             token.type = TOKEN_TYPE_STRING;
             
-            token.text = tokenizer->at;
+            token.buffer.data = tokenizer->at;
             while (tokenizer->at[0] && tokenizer->at[0] != '"') {
                 ++tokenizer->at;
             }
             
-            token.text_length = (u32)(tokenizer->at - token.text);
+            token.buffer.size = (u32)(tokenizer->at - token.buffer.data);
             
             ++tokenizer->at; // Skip last double quotes
+        } break;        
+
+        case '-':
+        case '0':
+        case '1':
+        case '2':
+        case '3':
+        case '4':
+        case '5':
+        case '6':
+        case '7':
+        case '8':
+        case '9':
+        {
+            token.type = TOKEN_TYPE_NUMBER;
+            token.buffer.data = --tokenizer->at;
+                
+            // TODO: Fix this. Now it works with correct decimal values, but it does not work with values like 1.e1
+            bool could_be_number = true;
+            bool could_be_dot = true;
+            bool could_be_e = true;
+                
+            while (tokenizer->at[0])
+            {
+                if (tokenizer->at[0] != '}' && 
+                    tokenizer->at[0] != ']' && 
+                    tokenizer->at[0] != ',' && 
+                    !is_whitespace(tokenizer->at[0]))
+                {
+                    if (could_be_number && is_number(tokenizer->at[0])) {
+                        ++tokenizer->at;
+                        if (!could_be_dot) {
+                            could_be_e = true;
+                        }
+                        if (!could_be_e) {
+                            could_be_dot = true;
+                        }
+                    } else if (could_be_dot && tokenizer->at[0] == '.') {
+                        ++tokenizer->at;
+                        could_be_dot = false;
+                    } else if (could_be_e && ((tokenizer->at[0] == 'e') ||
+                                              (tokenizer->at[0] == 'E'))) {
+                        ++tokenizer->at;
+                        could_be_dot = false;
+                        could_be_e = false;
+                    }
+                }
+                else
+                {
+                    break;
+                }
+            }
+                
+            token.buffer.size = (u32)(tokenizer->at - token.buffer.data);
         } break;
         
-        case '\0': { token.type = TOKEN_TYPE_END_OF_STREAM; } break;
-        
         default: {
-            // Parse literal value
-            
             if (is_alpha(c)) {
-                token.text = --tokenizer->at;
+                token.buffer.data = --tokenizer->at;
                 while (tokenizer->at[0] && (is_alpha(c) &&
                                             tokenizer->at[0] != '}' && 
                                             tokenizer->at[0] != ']' && 
@@ -166,72 +216,29 @@ Token get_token(Tokenizer *tokenizer, bool advance_tokenizer)
                     ++tokenizer->at;
                 }
                 
-                token.text_length = (u32)(tokenizer->at - token.text);
+                token.buffer.size = (u32)(tokenizer->at - token.buffer.data);
                 
-                if (strncmp(token.text, "true", 4) == 0 ||
-                    strncmp(token.text, "false", 5) == 0) {
+                if (strncmp(token.buffer.data, "true", 4) == 0 ||
+                    strncmp(token.buffer.data, "false", 5) == 0) {
                     token.type = TOKEN_TYPE_BOOLEAN;
-                } else if (strncmp(token.text, "null", 4) == 0) {
+                } else if (strncmp(token.buffer.data, "null", 4) == 0) {
                     token.type = TOKEN_TYPE_NULL;
                 } else {
-                    fprintf(stderr, "Unrecognized literal value %.*s\n", token.text_length, token.text);
-                }
-                
-            } else if (is_number(c)) {
-                token.text = --tokenizer->at;
-                
-                // TODO: Fix this. Now it works with correct decimal values, but it does not work with values like 1.e1
-                bool could_be_number = true;
-                bool could_be_dot = true;
-                bool could_be_e = true;
-                
-                while (tokenizer->at[0])
-                {
-                    if (tokenizer->at[0] != '}' && 
-                        tokenizer->at[0] != ']' && 
-                        tokenizer->at[0] != ',' && 
-                        !is_whitespace(tokenizer->at[0]))
-                    {
-                        if (could_be_number && is_number(tokenizer->at[0])) {
-                            ++tokenizer->at;
-                            if (!could_be_dot) {
-                                could_be_e = true;
-                            }
-                            if (!could_be_e) {
-                                could_be_dot = true;
-                            }
-                        } else if (could_be_dot && tokenizer->at[0] == '.') {
-                            ++tokenizer->at;
-                            could_be_dot = false;
-                        } else if (could_be_e && ((tokenizer->at[0] == 'e') ||
-                                                  (tokenizer->at[0] == 'E'))) {
-                            ++tokenizer->at;
-                            could_be_dot = false;
-                            could_be_e = false;
-                        }
-                    }
-                    else
-                    {
-                        break;
-                    }
-                }
-                
-                token.text_length = (u32)(tokenizer->at - token.text);
-                token.type = TOKEN_TYPE_NUMBER;
-                
+                    fprintf(stderr, "Unrecognized literal value %.*s\n", token.buffer.size, token.buffer.data);
+                }                                
             } else {
-                fprintf(stderr, "Unrecognized literal value %.*s\n", token.text_length, token.text);
+                fprintf(stderr, "Unrecognized literal value %.*s\n", token.buffer.size, token.buffer.data);
             }
             
         } break;
     }
     
     
-    if (!advance_tokenizer) {
-        tokenizer->at = original_at;
+    if (advance_tokenizer) {
+        add_token(tokenizer, &token);
+    } else {
+        tokenizer->at = original_at;        
     }
-
-    add_token(tokenizer, &token);
     
     return token;
 }
@@ -244,89 +251,123 @@ inline bool require_token(Tokenizer *tokenizer, Token_type expected_type)
     return result;
 }
 
-void parse_member(Tokenizer *tokenizer)
+void add_sibling(Json_element *element, Json_element *new_element)
 {
-    Token token = get_token(tokenizer);
-    if (token.type != TOKEN_TYPE_STRING) {
-        fprintf(stderr, "Missing '\"' at line %d\n", tokenizer->line);
-        return;
-    }
-    
-    if (!require_token(tokenizer, TOKEN_TYPE_COLON)) {
-        fprintf(stderr, "Missing ':' at line %d\n", tokenizer->line);
-        return;
-    }
-    
-    parse_element(tokenizer);
-}
+    if (element) {
+        if (element->next_sibling) {
+            new_element->next_sibling = element->next_sibling;
+        }
 
-void parse_members(Tokenizer *tokenizer)
-{
-    parse_member(tokenizer);
-    
-    Token token = get_token(tokenizer, false);
-    if (token.type == TOKEN_TYPE_COMMA) {
-        get_token(tokenizer);
-        parse_members(tokenizer);
+        element->next_sibling = new_element;
     }
 }
 
-void parse_object(Tokenizer *tokenizer)
+Json_element * parse_object(Tokenizer *tokenizer)
 {
-    parse_members(tokenizer);
+    Json_element *result = 0;
+
+    while (tokenizer->parsing) {
+        Token name_token = get_token(tokenizer);
+        if (name_token.type != TOKEN_TYPE_STRING) {
+            fprintf(stderr, "Missing '\"' at line %d\n", tokenizer->line);
+            break;
+        }
     
+        if (!require_token(tokenizer, TOKEN_TYPE_COLON)) {
+            fprintf(stderr, "Missing ':' at line %d\n", tokenizer->line);
+            break;
+        }
+
+        Token value_token = get_token(tokenizer);
+        Json_element *element = parse_element(tokenizer, name_token.buffer, value_token);
+
+        if (result) {
+            add_sibling(result, element);
+        } else {
+            result = element;
+        }
+
+        Token token = get_token(tokenizer, false);
+        if (token.type == TOKEN_TYPE_COMMA) {
+            get_token(tokenizer);
+        } else {
+            break;
+        }
+    }
+
     if (!require_token(tokenizer, TOKEN_TYPE_CLOSE_BRACE)) {
         fprintf(stderr, "Expected } at line %d\n", tokenizer->line);
-        return;
     }
+
+    return result;
 }
 
-void parse_array(Tokenizer *tokenizer)
+Json_element * parse_array(Tokenizer *tokenizer)
 {
-    Token array = get_token(tokenizer, false);
+    Json_element *result = 0;
     
-    parse_elements(tokenizer);
+    while (tokenizer->parsing) {
+        Token value_token = get_token(tokenizer);
+        Json_element *element = parse_element(tokenizer, {}, value_token);
+
+        if (result) {
+            add_sibling(result, element);
+        } else {
+            result = element;
+        }
+
+        Token token = get_token(tokenizer, false);
+        if (token.type == TOKEN_TYPE_COMMA) {
+            get_token(tokenizer);
+        } else {
+            break;
+        }
+    }
     
     if (!require_token(tokenizer, TOKEN_TYPE_CLOSE_BRACKET)) {
         fprintf(stderr, "Expected ] at line %d\n", tokenizer->line);
-        return;
     }
+
+    return result;
 }
 
-void parse_elements(Tokenizer *tokenizer)
+Json_element * parse_element(Tokenizer *tokenizer, Buffer name, Token token_value)
 {
-    parse_element(tokenizer);
-    
-    Token token = get_token(tokenizer, false);
-    if (token.type == TOKEN_TYPE_COMMA) {
-        get_token(tokenizer);
-        parse_elements(tokenizer);
-    }
-}
+    Json_element *sub_element = 0;
 
-bool parse_element(Tokenizer *tokenizer)
-{
-    bool continue_parsing = true;
-    
-    Token token = get_token(tokenizer);
-    switch(token.type)
+    switch(token_value.type)
     {
         case TOKEN_TYPE_OPEN_BRACE: {
-            parse_object(tokenizer);
+            sub_element = parse_object(tokenizer);
         } break;
         
         case TOKEN_TYPE_OPEN_BRACKET: {
-            parse_array(tokenizer);
+            sub_element = parse_array(tokenizer);
         } break;
         
         // Literal values string, number, boolean and null are skiped here
         
         case TOKEN_TYPE_END_OF_STREAM: {
-            continue_parsing = false;
+            tokenizer->parsing = false;
         } break;
     }
-    
-    return continue_parsing;
+
+    Json_element *result = (Json_element *)malloc(sizeof(Json_element));
+    result->name = name;
+    result->value = token_value.buffer;
+    result->first = sub_element;
+    result->next_sibling = 0;
+
+    return result;
+}
+
+void print_tokens(Tokenizer *tokenizer)
+{
+    Token *token = tokenizer->first;
+    while (token) {
+        printf("%.*s = %s\n", token->buffer.size, token->buffer.data, token_types[token->type]);
+        token = token->next;
+    }
 }
 
 void parse_json(char *json_content)
@@ -334,11 +375,14 @@ void parse_json(char *json_content)
     Tokenizer tokenizer = {};
     tokenizer.at = json_content;
     tokenizer.line = 1;
+    tokenizer.parsing = true;
     
-    bool parsing = true;
-    while (parsing) {
-        parsing = parse_element(&tokenizer);
-    }
+    Json_element *json_element = parse_element(&tokenizer, {}, get_token(&tokenizer));
+
+    Json_element *find = get(json_element, "pairs");
+    find->next_sibling = 0;
+    
+    print_tokens(&tokenizer);
 }
 
 int main(int argc, char** argv)
@@ -353,8 +397,8 @@ int main(int argc, char** argv)
     generate_json(n);
 #endif
     
-//    char *filename = "haversine.json";
-    char *filename = "test.json";
+    char *filename = "haversine.json";
+//    char *filename = "test.json";
     char *json_content = read_entire_file(filename);
     if (json_content) {
         printf("Length = %zd\n", strlen(json_content));
