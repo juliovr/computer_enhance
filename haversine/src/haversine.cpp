@@ -370,7 +370,7 @@ void print_tokens(Tokenizer *tokenizer)
     }
 }
 
-void parse_json(char *json_content)
+Json_element * parse_json(char *json_content)
 {
     Tokenizer tokenizer = {};
     tokenizer.at = json_content;
@@ -379,10 +379,28 @@ void parse_json(char *json_content)
     
     Json_element *json_element = parse_element(&tokenizer, {}, get_token(&tokenizer));
 
-    Json_element *find = get(json_element, "pairs");
-    find->next_sibling = 0;
-    
-    print_tokens(&tokenizer);
+    return json_element;
+}
+
+void parse_haversine(char *json_content)
+{
+    Json_element *json = parse_json(json_content);
+    Json_element *pairs_array = get(json, "pairs");
+
+    if (pairs_array) {
+        for (Json_element *element = pairs_array->first; element; element = element->next_sibling) {
+            Buffer x0 = get(element, "x0")->value;
+            Buffer y0 = get(element, "y0")->value;
+            Buffer x1 = get(element, "x1")->value;
+            Buffer y1 = get(element, "y1")->value;
+
+            printf("{ \"x0\": %.*s, \"y0\": %.*s, \"x1\": %.*s, \"y1\": %.*s },\n",
+                   x0.size, x0.data,
+                   y0.size, y0.data,
+                   x1.size, x1.data,
+                   y1.size, y1.data);
+        }
+    }
 }
 
 int main(int argc, char** argv)
@@ -401,9 +419,7 @@ int main(int argc, char** argv)
 //    char *filename = "test.json";
     char *json_content = read_entire_file(filename);
     if (json_content) {
-        printf("Length = %zd\n", strlen(json_content));
-        printf("Parsing %s...\n", filename);
-        parse_json(json_content);
+        parse_haversine(json_content);
         printf("Done\n");
     } else {
         fprintf(stderr, "ERROR: Could not open file %s\n", filename);
